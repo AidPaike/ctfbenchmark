@@ -62,7 +62,7 @@ export DROPLET_DOCKER_PROXY=
 如果 Docker daemon 拉基础镜像失败，再执行：
 
 ```bash
-./scripts/configure-docker-daemon-proxy.sh
+./scripts/setup/configure-docker-daemon-proxy.sh
 ```
 
 ## 3. 启动后端
@@ -72,7 +72,7 @@ export DROPLET_DOCKER_PROXY=
 终端 1：
 
 ```bash
-DROPLET_PRESTART_CHALLENGES=0 ./scripts/dev-backend.sh
+DROPLET_PRESTART_CHALLENGES=0 ./scripts/dev/dev-backend.sh
 ```
 
 看到下面类似输出表示后端已启动：
@@ -93,7 +93,7 @@ curl --noproxy 127.0.0.1 -s http://127.0.0.1:1349/api/health
 终端 2：
 
 ```bash
-./scripts/prestart-challenges.sh
+./scripts/ops/prestart-challenges.sh
 ```
 
 这个命令会：
@@ -134,19 +134,19 @@ curl --noproxy 127.0.0.1 -s http://127.0.0.1:1349/api/health
 这时不要让 Agent 开始评测。先根据 `failed[*].error_message` 排查 Dockerfile、网络、代理、基础镜像或题目配置。修完后重新执行：
 
 ```bash
-./scripts/prestart-challenges.sh
+./scripts/ops/prestart-challenges.sh
 ```
 
 只检查当前状态、不重新启动题目：
 
 ```bash
-./scripts/prestart-challenges.sh --no-start
+./scripts/ops/prestart-challenges.sh --no-start
 ```
 
 只启动/检查指定题目：
 
 ```bash
-./scripts/prestart-challenges.sh --challenge-id xben-001-24
+./scripts/ops/prestart-challenges.sh --challenge-id xben-001-24
 ```
 
 如果某道题构建很慢，可以调大超时。注意：`DROPLET_COMPOSE_TIMEOUT_SECONDS` 要在启动后端时设置。
@@ -154,19 +154,19 @@ curl --noproxy 127.0.0.1 -s http://127.0.0.1:1349/api/health
 终端 1：
 
 ```bash
-DROPLET_PRESTART_CHALLENGES=0 DROPLET_COMPOSE_TIMEOUT_SECONDS=300 ./scripts/dev-backend.sh
+DROPLET_PRESTART_CHALLENGES=0 DROPLET_COMPOSE_TIMEOUT_SECONDS=300 ./scripts/dev/dev-backend.sh
 ```
 
 终端 2：
 
 ```bash
-DROPLET_CLIENT_TIMEOUT=900 ./scripts/prestart-challenges.sh
+DROPLET_CLIENT_TIMEOUT=900 ./scripts/ops/prestart-challenges.sh
 ```
 
 默认启动题目使用 `docker compose up -d`，与参考项目一致：已有镜像时不会每次强制 rebuild，缺失镜像时 Docker Compose 会按需构建。需要强制重新构建题目镜像时，再在启动后端前设置：
 
 ```bash
-DROPLET_FORCE_REBUILD=1 DROPLET_PRESTART_CHALLENGES=0 ./scripts/dev-backend.sh
+DROPLET_FORCE_REBUILD=1 DROPLET_PRESTART_CHALLENGES=0 ./scripts/dev/dev-backend.sh
 ```
 
 ## 5. 启动前端
@@ -176,7 +176,7 @@ DROPLET_FORCE_REBUILD=1 DROPLET_PRESTART_CHALLENGES=0 ./scripts/dev-backend.sh
 终端 3：
 
 ```bash
-./scripts/dev-frontend.sh
+./scripts/dev/dev-frontend.sh
 ```
 
 打开：
@@ -257,7 +257,7 @@ PYTHONPATH=backend:sdk python -m droplet_sdk.cli --timeout 600 start-all
 停止全部题目：
 
 ```bash
-./scripts/stop-challenges.sh
+./scripts/ops/stop-challenges.sh
 ```
 
 启动单题：
@@ -299,7 +299,7 @@ PYTHONPATH=backend:sdk python -m droplet_sdk.cli report-event xben-001-24 agent_
 诊断本机环境：
 
 ```bash
-./scripts/doctor.sh
+./scripts/ops/doctor.sh
 ```
 
 ## 8. 一键开发模式
@@ -307,7 +307,7 @@ PYTHONPATH=backend:sdk python -m droplet_sdk.cli report-event xben-001-24 agent_
 如果 Docker 镜像已经构建稳定，也可以直接启动后端并让它自动预启动题目：
 
 ```bash
-./scripts/dev-backend.sh
+./scripts/dev/dev-backend.sh
 ```
 
 这个模式适合日常使用；如果题目还在调试，建议用第 3 步的 `DROPLET_PRESTART_CHALLENGES=0` 模式。
@@ -317,7 +317,7 @@ PYTHONPATH=backend:sdk python -m droplet_sdk.cli report-event xben-001-24 agent_
 先停止题目容器：
 
 ```bash
-./scripts/stop-challenges.sh
+./scripts/ops/stop-challenges.sh
 ```
 
 然后在后端和前端终端按 `Ctrl-C`。
@@ -325,7 +325,7 @@ PYTHONPATH=backend:sdk python -m droplet_sdk.cli report-event xben-001-24 agent_
 如果需要手动清理运行态目录：
 
 ```bash
-./scripts/clean-runtime.sh
+./scripts/ops/clean-runtime.sh
 ```
 
 ## 10. 测试
