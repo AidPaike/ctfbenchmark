@@ -194,7 +194,6 @@ class DropletManager:
             challenge.compose_project = result["project"]
             challenge.target_url = result["target_url"]
             challenge.ports = result["ports"]
-            challenge.status = ChallengeStatus.running
             challenge.started_at = now()
             logger.info(
                 f"Challenge {challenge_id} started on {challenge.target_url}",
@@ -206,6 +205,7 @@ class DropletManager:
                 challenge_id=challenge.id,
                 data={"target_url": challenge.target_url, "ports": challenge.ports},
             )
+            challenge.status = ChallengeStatus.running
         except Exception as exc:
             logger.error(
                 f"Challenge {challenge_id} failed to start: {exc}",

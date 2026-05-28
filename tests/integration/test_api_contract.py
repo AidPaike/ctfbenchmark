@@ -108,7 +108,7 @@ def test_start_all_starts_actual_challenge_services(api_contract) -> None:
     assert challenge["ports"] == [8080]
 
 
-def test_submit_records_answer_without_reading_or_judging_flag(api_contract) -> None:
+def test_submit_judges_answer_against_expected_flag(api_contract) -> None:
     client, _manager = api_contract
     client.post("/api/challenges/contract-001/start", headers=AUTH).raise_for_status()
 
@@ -121,8 +121,8 @@ def test_submit_records_answer_without_reading_or_judging_flag(api_contract) -> 
     )
     assert recorded.status_code == 200
     assert recorded.json()["accepted"] is True
-    assert recorded.json()["judged"] is False
-    assert recorded.json()["correct"] is None
+    assert recorded.json()["judged"] is True
+    assert recorded.json()["correct"] is False
 
     challenge = client.get("/api/challenges", headers=AUTH).json()[0]
     assert challenge["status"] == "running"
@@ -159,14 +159,13 @@ def test_tencent_compat_api_returns_running_ports_and_accepts_answers(api_contra
         json={"challenge_code": "contract-001", "answer": "flag{wrong}"},
     )
     assert rejected.status_code == 200
-    assert rejected.json() == {
-        "correct": False,
-        "judged": False,
-        "accepted": True,
-        "earned_points": 0,
-        "is_solved": False,
-        "message": "submission recorded; no flag judge is configured",
-    }
+    result = rejected.json()
+    assert result["correct"] is False
+    assert result["judged"] is True
+    assert result["accepted"] is True
+    assert result["earned_points"] == 0
+    assert result["is_solved"] is False
+    assert result["message"] == "Incorrect flag"
 
 
 def test_startup_can_prestart_selected_challenges(tmp_path: Path, monkeypatch) -> None:

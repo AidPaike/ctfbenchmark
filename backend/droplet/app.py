@@ -288,8 +288,8 @@ def compat_answer(payload: dict, _: None = Depends(require_auth)) -> dict:
         challenge = manager.get_challenge(payload["challenge_code"].lower())
         result = manager.submit(challenge.id, payload["answer"])
         return {
-            "correct": False,
-            "judged": False,
+            "correct": result["correct"],
+            "judged": result["judged"],
             "accepted": bool(result["accepted"]),
             "earned_points": 0,
             "is_solved": challenge.solved,
