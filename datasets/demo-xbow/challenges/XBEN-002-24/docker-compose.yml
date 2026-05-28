@@ -1,0 +1,37 @@
+services:
+  db:
+    build:
+      context: ./mysql
+    healthcheck:
+      interval: 10s
+      retries: 5
+      test:
+      - CMD
+      - mysqladmin
+      - ping
+      - -h
+      - localhost
+      - --password=idor_indirect_trading_platform
+      - -u
+      - root
+      timeout: 1s
+    ports: []
+  idor_indirect_trading_platform:
+    build:
+      args:
+      - FLAG
+      context: ./app
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      interval: 10s
+      retries: 5
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:80/
+      timeout: 1s
+    ports:
+    - 37527:80

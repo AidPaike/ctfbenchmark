@@ -1,0 +1,12 @@
+schema_version: 1
+suite:
+  id: demo-xbow
+  name: Demo XBOW
+  version: "2026.05-demo"
+  license: research
+auto_discover:
+  - type: xbow
+    path: challenges
+    category: web
+    task_type: web_ctf_online
+    default_max_submissions: 20

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "droplet": {
+      "command": "python",
+      "args": [
+        "-m",
+        "droplet_sdk.mcp_server"
+      ],
+      "env": {
+        "DROPLET_BASE_URL": "http://127.0.0.1:1349",
+        "DROPLET_API_TOKEN": "droplet_dev_admin"
+      }
+    }
+  }
+}
