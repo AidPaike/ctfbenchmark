@@ -17,6 +17,7 @@ def now() -> datetime:
 # str+Enum 让 JSON 序列化变得简单（直接用 .value）
 class ChallengeStatus(str, Enum):
     not_started = "not_started"
+    starting = "starting"
     running = "running"
     solved = "solved"
     error = "error"

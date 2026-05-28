@@ -26,6 +26,7 @@ NO_PROXY_KEYS = ("NO_PROXY", "no_proxy")
 DEFAULT_DOCKER_NO_PROXY = "127.0.0.1,localhost,::1,host.docker.internal,pypi.tuna.tsinghua.edu.cn"
 DEFAULT_READY_TIMEOUT_SECONDS = 90
 DEFAULT_COMPOSE_TIMEOUT_SECONDS = 300
+DEFAULT_MAX_CONCURRENT_ENVIRONMENTS = 2
 
 
 class DropletManager:
@@ -66,6 +67,10 @@ class DropletManager:
         self.compose_timeout_seconds = int(
             os.getenv("DROPLET_COMPOSE_TIMEOUT_SECONDS", str(DEFAULT_COMPOSE_TIMEOUT_SECONDS))
         )
+        self.max_concurrent = int(
+            os.getenv("DROPLET_MAX_CONCURRENT_ENVIRONMENTS", str(DEFAULT_MAX_CONCURRENT_ENVIRONMENTS))
+        )
+        self._start_lock = threading.Lock()
 
         self.work_root.mkdir(parents=True, exist_ok=True)
         # [4] Cleanup leftover directories from a previous unclean shutdown to avoid disk leaks or zombie Docker projects
@@ -102,16 +107,55 @@ class DropletManager:
             raise KeyError("Challenge not found")
         return self.challenges[challenge_id]
 
-    # [7] Full lifecycle: stop existing -> wipe work dir -> reset state -> start compose -> record event
-    # 完整生命周期：停止现有实例 -> 删除工作目录 -> 重置状态 -> 启动 compose -> 记录事件
+    # [7] Asynchronous start: validates limit, marks starting, then spawns a background thread
+    # 异步启动：验证限制、标记为启动中，然后启动后台线程
     def start_challenge(self, challenge_id: str) -> Challenge:
         challenge = self.get_challenge(challenge_id)
+
+        with self._start_lock:
+            if challenge.status == ChallengeStatus.starting:
+                return challenge
+
+            if challenge.status == ChallengeStatus.running:
+                return challenge
+
+            active_count = self._count_active_challenges()
+            if active_count >= self.max_concurrent:
+                raise RuntimeError(
+                    f"Maximum concurrent environments ({self.max_concurrent}) reached. "
+                    f"Please stop another environment first."
+                )
+
+            challenge.status = ChallengeStatus.starting
+            challenge.error_message = None
+
         self.events.record(
             "challenge_start_requested",
             "请求启动题目环境",
             challenge_id=challenge.id,
             data={"status": challenge.status.value},
         )
+
+        thread = threading.Thread(
+            target=self._do_start_challenge,
+            args=(challenge_id,),
+            daemon=True,
+        )
+        thread.start()
+
+        return challenge
+
+    def _count_active_challenges(self) -> int:
+        return sum(
+            1
+            for c in self.challenges.values()
+            if c.status in (ChallengeStatus.running, ChallengeStatus.starting)
+        )
+
+    # [8] Background worker: performs the actual Docker Compose lifecycle
+    # 后台工作线程：执行实际的 Docker Compose 生命周期
+    def _do_start_challenge(self, challenge_id: str) -> None:
+        challenge = self.get_challenge(challenge_id)
 
         if challenge.status == ChallengeStatus.running:
             self._stop_compose(challenge)
@@ -120,7 +164,6 @@ class DropletManager:
         if work_dir.exists():
             shutil.rmtree(work_dir)
 
-        challenge.status = ChallengeStatus.not_started
         challenge.target_url = None
         challenge.ports = []
         challenge.work_dir = None
@@ -131,6 +174,11 @@ class DropletManager:
 
         try:
             result = self._start_compose(challenge, work_dir)
+
+            if challenge.status != ChallengeStatus.starting:
+                self._stop_compose(challenge)
+                return
+
             challenge.work_dir = result["work_dir"]
             challenge.compose_project = result["project"]
             challenge.target_url = result["target_url"]
@@ -144,20 +192,19 @@ class DropletManager:
                 data={"target_url": challenge.target_url, "ports": challenge.ports},
             )
         except Exception as exc:
-            challenge.status = ChallengeStatus.error
-            challenge.error_message = str(exc)
-            self.events.record(
-                "challenge_start_failed",
-                "题目环境启动失败",
-                challenge_id=challenge.id,
-                level="error",
-                data={"error": str(exc)},
-            )
+            if challenge.status == ChallengeStatus.starting:
+                challenge.status = ChallengeStatus.error
+                challenge.error_message = str(exc)
+                self.events.record(
+                    "challenge_start_failed",
+                    "题目环境启动失败",
+                    challenge_id=challenge.id,
+                    level="error",
+                    data={"error": str(exc)},
+                )
             if work_dir.exists():
                 shutil.rmtree(work_dir, ignore_errors=True)
-            raise
 
-        return challenge
 
     # [8] Batch start: skip already-running and explicitly judged-solved challenges; collect per-challenge errors
     # 批量启动：跳过已在运行和显式判题通过的题目；收集每个题目的错误
@@ -165,6 +212,7 @@ class DropletManager:
         selected = challenge_ids or list(self.challenges)
         started: list[str] = []
         already_running: list[str] = []
+        skipped_limit: list[str] = []
         errors: dict[str, str] = {}
 
         for challenge_id in selected:
@@ -177,6 +225,11 @@ class DropletManager:
                     continue
                 self.start_challenge(challenge.id)
                 started.append(challenge.id)
+            except RuntimeError as exc:
+                if "Maximum concurrent" in str(exc):
+                    skipped_limit.append(challenge_id)
+                else:
+                    errors[challenge_id] = str(exc)
             except Exception as exc:
                 errors[challenge_id] = str(exc)
 
@@ -184,6 +237,7 @@ class DropletManager:
             "total": len(selected),
             "started": started,
             "already_running": already_running,
+            "skipped_limit": skipped_limit,
             "errors": errors,
             "running": sum(1 for c in self.challenges.values() if c.status == ChallengeStatus.running),
         }
@@ -203,7 +257,7 @@ class DropletManager:
 
     def stop_challenge(self, challenge_id: str) -> Challenge:
         challenge = self.get_challenge(challenge_id)
-        if challenge.status == ChallengeStatus.running:
+        if challenge.status in (ChallengeStatus.running, ChallengeStatus.starting):
             self._stop_compose(challenge)
             challenge.status = ChallengeStatus.not_started
             challenge.target_url = None
@@ -287,10 +341,12 @@ class DropletManager:
         total = len(self.challenges)
         solved = sum(1 for c in self.challenges.values() if c.solved)
         running = sum(1 for c in self.challenges.values() if c.status == ChallengeStatus.running)
+        starting = sum(1 for c in self.challenges.values() if c.status == ChallengeStatus.starting)
         return {
             "total_challenges": total,
             "solved": solved,
             "running": running,
+            "starting": starting,
             "overall_score": _ratio(solved, total),
         }
 
