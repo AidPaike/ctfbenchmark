@@ -220,7 +220,9 @@ def test_event_api_records_lifecycle_and_accepts_agent_events(api_contract) -> N
     event_types = [event["event_type"] for event in events]
     assert "challenge_started" in event_types
     assert "agent_event" in event_types
-    assert events[-1]["data"] == {"tool": "curl"}
+    agent_events = [e for e in events if e["event_type"] == "agent_event"]
+    assert len(agent_events) == 1
+    assert agent_events[0]["data"] == {"tool": "curl"}
 
     all_events = client.get("/api/events?challenge_id=contract-001", headers=AUTH).json()
     assert all(event["challenge_id"] == "contract-001" for event in all_events)

@@ -6,9 +6,8 @@ from pathlib import Path
 from droplet.events import EventStore
 
 
-def test_event_store_writes_jsonl_and_redacts_sensitive_fields(tmp_path: Path) -> None:
-    log_path = tmp_path / "events.jsonl"
-    store = EventStore(log_path)
+def test_event_store_persists_to_sqlite_and_redacts_sensitive_fields(tmp_path: Path) -> None:
+    store = EventStore(tmp_path / "events.jsonl")
 
     event = store.record(
         "submission_recorded",
@@ -19,11 +18,14 @@ def test_event_store_writes_jsonl_and_redacts_sensitive_fields(tmp_path: Path) -
 
     assert event["data"]["answer"] == "<redacted>"
     assert event["data"]["nested"]["token"] == "<redacted>"
-    lines = log_path.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 1
-    persisted = json.loads(lines[0])
+
+    # Verify persisted to SQLite
+    events = store.list(challenge_id="xben-001-24")
+    assert len(events) == 1
+    persisted = events[0]
     assert persisted["event_type"] == "submission_recorded"
     assert persisted["data"]["judged"] is False
+    assert persisted["data"]["answer"] == "<redacted>"
 
 
 def test_event_store_filters_by_challenge(tmp_path: Path) -> None:
@@ -34,3 +36,25 @@ def test_event_store_filters_by_challenge(tmp_path: Path) -> None:
     events = store.list(challenge_id="b")
 
     assert [event["message"] for event in events] == ["two"]
+
+
+def test_event_store_respects_limit(tmp_path: Path) -> None:
+    store = EventStore(tmp_path / "events.jsonl")
+    for i in range(5):
+        store.record("agent_event", f"event-{i}", challenge_id="test")
+
+    events = store.list(challenge_id="test", limit=3)
+
+    assert len(events) == 3
+    # Most recent first (descending order)
+    assert [e["message"] for e in events] == ["event-4", "event-3", "event-2"]
+
+
+def test_event_store_list_without_challenge_id_returns_all(tmp_path: Path) -> None:
+    store = EventStore(tmp_path / "events.jsonl")
+    store.record("challenge_started", "global", challenge_id=None)
+    store.record("challenge_started", "scoped", challenge_id="test")
+
+    events = store.list(limit=10)
+
+    assert len(events) == 2

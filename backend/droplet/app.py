@@ -8,6 +8,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from droplet.database import init_db, migrate_jsonl_to_sqlite
+from droplet.events import DEFAULT_EVENT_LOG
 from droplet.manager import DropletManager
 
 
@@ -64,6 +66,8 @@ app.add_middleware(
 # FastAPI 生命周期钩子：启动时加载题目，退出时优雅关闭
 @app.on_event("startup")
 def startup() -> None:
+    init_db()
+    migrate_jsonl_to_sqlite(DEFAULT_EVENT_LOG)
     manager.load_tasks()
     app.state.prestart = None
     if _env_enabled("DROPLET_PRESTART_CHALLENGES", default=True):

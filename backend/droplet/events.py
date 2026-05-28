@@ -2,42 +2,47 @@ from __future__ import annotations
 
 import json
 import os
-import threading
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sqlmodel import Session, desc, select
 
-# [1] JSONL = one JSON object per line; grep-friendly and append-only safe
-# JSONL = 每行一个 JSON 对象；便于 grep 且追加写入安全
-DEFAULT_EVENT_LOG = Path("logs/droplet-events.jsonl")
-# [2] Redact sensitive values so audit logs never leak flags or tokens
+from droplet.database import Event, get_engine
+
+
+# [1] Redact sensitive values so audit logs never leak flags or tokens
 # 对敏感值进行脱敏，确保审计日志不会泄漏 flag 或 token
 SENSITIVE_KEYS = {"answer", "expected_flag", "flag", "secret", "token", "authorization"}
+
+# [2] Default path retained for optional JSONL migration on first boot
+# 保留默认路径以便首次启动时进行可选的 JSONL 迁移
+DEFAULT_EVENT_LOG = Path("logs/droplet-events.jsonl")
 
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-# [3] EventStore uses a dual-write strategy: disk (persistent) + memory (fast query)
-# EventStore 使用双写策略：磁盘（持久化）+ 内存（快速查询）
+# [3] EventStore backed by SQLite (via SQLModel) for persistent, queryable audit logs
+# EventStore 后端使用 SQLite（通过 SQLModel），实现持久化、可查询的审计日志
 class EventStore:
-    """Append-only JSONL audit log for platform-visible benchmark events."""
+    """SQLite-backed audit log for platform-visible benchmark events."""
 
     def __init__(self, path: Path | None = None, max_memory_events: int = 1000) -> None:
-        configured = os.getenv("DROPLET_EVENT_LOG")
-        self.path = path or (Path(configured) if configured else DEFAULT_EVENT_LOG)
+        # path is retained for compatibility but no longer used for writes
+        self.path = path or DEFAULT_EVENT_LOG
         self.max_memory_events = max_memory_events
-        self._lock = threading.Lock()
-        self._events: list[dict[str, Any]] = []
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._load_existing()
+        self._engine = get_engine()
+        # Ensure tables exist for tests and direct instantiation
+        from droplet.database import init_db
 
-    # [4] record() appends to disk first, then updates the in-memory cache
-    # record() 先追加到磁盘，然后更新内存缓存
+        init_db()
+
+    # [4] record() persists to SQLite; retains same return shape as before
+    # record() 持久化到 SQLite；保持与之前相同的返回结构
     def record(
         self,
         event_type: str,
@@ -56,43 +61,46 @@ class EventStore:
             "challenge_id": challenge_id,
             "data": _sanitize(data or {}),
         }
-        line = json.dumps(event, ensure_ascii=False, default=str)
-        with self._lock:
-            with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(line + "\n")
-            self._events.append(event)
-            # [5] Trim memory cache to prevent unbounded growth
-            # 裁剪内存缓存以防止无限制增长
-            if len(self._events) > self.max_memory_events:
-                self._events = self._events[-self.max_memory_events :]
+        db_event = Event(
+            id=event["id"],
+            timestamp=event["timestamp"],
+            level=event["level"],
+            event_type=event["event_type"],
+            message=event["message"],
+            challenge_id=event["challenge_id"],
+            data=json.dumps(event["data"], ensure_ascii=False, default=str),
+        )
+        with Session(self._engine) as session:
+            session.add(db_event)
+            session.commit()
         return event
 
+    # [5] list() queries SQLite with optional challenge filter and limit
+    # list() 从 SQLite 查询，支持可选的题目过滤和数量限制
     def list(self, *, challenge_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 1000))
-        with self._lock:
-            events = list(self._events)
-        if challenge_id:
-            events = [event for event in events if event.get("challenge_id") == challenge_id]
-        return events[-limit:]
+        with Session(self._engine) as session:
+            query = select(Event).order_by(desc(Event.timestamp))
+            if challenge_id:
+                query = query.where(Event.challenge_id == challenge_id)
+            query = query.limit(limit)
+            results = session.exec(query).all()
+            return [
+                {
+                    "id": r.id,
+                    "timestamp": r.timestamp,
+                    "level": r.level,
+                    "event_type": r.event_type,
+                    "message": r.message,
+                    "challenge_id": r.challenge_id,
+                    "data": json.loads(r.data) if r.data else {},
+                }
+                for r in results
+            ]
 
     def clear_memory(self) -> None:
-        with self._lock:
-            self._events = []
-
-    def _load_existing(self) -> None:
-        if not self.path.exists():
-            return
-        loaded: list[dict[str, Any]] = []
-        for line in self.path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                item = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(item, dict):
-                loaded.append(item)
-        self._events = loaded[-self.max_memory_events :]
+        # No-op: SQLite persists everything; clearMemory has no in-memory cache to clear
+        pass
 
 
 # [6] Recursively sanitize nested dicts/lists so no sensitive key slips through
