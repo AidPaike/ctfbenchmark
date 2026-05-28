@@ -5,6 +5,10 @@ import os
 from pathlib import Path
 from typing import Generator
 
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Generator
+
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 
@@ -54,6 +58,22 @@ class Event(SQLModel, table=True):
     event_type: str = Field(max_length=64, index=True)
     message: str
     challenge_id: str | None = Field(default=None, max_length=64, index=True)
+    data: str = Field(default="{}")
+
+
+# [4] System log table for structured application logging
+# 系统日志表，用于结构化应用日志
+class SystemLog(SQLModel, table=True):
+    __tablename__ = "system_logs"
+
+    id: int | None = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+    level: str = Field(max_length=10, index=True)
+    logger: str = Field(max_length=64, index=True)
+    message: str
+    source_file: str | None = Field(default=None, max_length=256)
+    source_line: int | None = Field(default=None)
+    exception: str | None = Field(default=None)
     data: str = Field(default="{}")
 
 
