@@ -85,6 +85,17 @@ def test_challenges_are_loaded_without_old_runtime_model(api_contract) -> None:
     assert "expected_flag" not in challenges[0]
 
 
+def _wait_for_status(client, expected: str = "running", timeout: float = 2.0) -> dict:
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        challenge = client.get("/api/challenges", headers=AUTH).json()[0]
+        if challenge["status"] == expected:
+            return challenge
+        time.sleep(0.05)
+    raise AssertionError(f"Challenge did not reach status {expected}")
+
+
 def test_start_all_starts_actual_challenge_services(api_contract) -> None:
     client, _manager = api_contract
 
@@ -92,8 +103,7 @@ def test_start_all_starts_actual_challenge_services(api_contract) -> None:
     assert response.status_code == 200
     assert response.json()["started"] == ["contract-001"]
 
-    challenge = client.get("/api/challenges", headers=AUTH).json()[0]
-    assert challenge["status"] == "running"
+    challenge = _wait_for_status(client, "running")
     assert challenge["target_url"] == "http://127.0.0.1/contract-001"
     assert challenge["ports"] == [8080]
 
@@ -101,6 +111,8 @@ def test_start_all_starts_actual_challenge_services(api_contract) -> None:
 def test_submit_records_answer_without_reading_or_judging_flag(api_contract) -> None:
     client, _manager = api_contract
     client.post("/api/challenges/contract-001/start", headers=AUTH).raise_for_status()
+
+    challenge = _wait_for_status(client, "running")
 
     recorded = client.post(
         "/api/challenges/contract-001/submit",
@@ -128,6 +140,8 @@ def test_submit_records_answer_without_reading_or_judging_flag(api_contract) -> 
 def test_tencent_compat_api_returns_running_ports_and_accepts_answers(api_contract) -> None:
     client, _manager = api_contract
     client.post("/api/challenges/contract-001/start", headers=AUTH).raise_for_status()
+
+    _wait_for_status(client, "running")
 
     challenges_response = client.get("/api/v1/challenges", headers=AUTH)
     assert challenges_response.status_code == 200
@@ -181,7 +195,9 @@ def test_startup_can_prestart_selected_challenges(tmp_path: Path, monkeypatch) -
     with TestClient(app_module.app) as client:
         health = client.get("/api/health").json()
         assert health["prestart"]["started"] == ["contract-001"]
-        assert health["running"] == 1
+        # Prestart is asynchronous; wait briefly for the background thread to finish
+        challenge = _wait_for_status(client, "running")
+        assert challenge["status"] == "running"
 
     manager.challenges = {}
     manager.events = old_events
@@ -192,6 +208,7 @@ def test_event_api_records_lifecycle_and_accepts_agent_events(api_contract) -> N
     manager.events.clear_memory()
 
     client.post("/api/challenges/contract-001/start", headers=AUTH).raise_for_status()
+    _wait_for_status(client, "running")
     reported = client.post(
         "/api/challenges/contract-001/events",
         headers=AUTH,

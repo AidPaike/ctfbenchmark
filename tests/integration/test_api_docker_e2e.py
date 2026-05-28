@@ -74,8 +74,21 @@ def test_api_can_start_challenge_record_submission_and_cleanup(droplet_server) -
         challenges = _ok(client.get("/api/challenges"))
         assert any(challenge["id"] == task_id for challenge in challenges)
 
-        challenge = _ok(client.post(f"/api/challenges/{task_id}/start"))
-        assert challenge["status"] == "running"
+        start_resp = client.post(f"/api/challenges/{task_id}/start")
+        assert start_resp.status_code == 202, start_resp.text
+        challenge = start_resp.json()
+        assert challenge["status"] == "starting"
+
+        # Poll until the background start finishes
+        deadline = time.monotonic() + TARGET_READY_TIMEOUT_SECONDS
+        last_status = challenge["status"]
+        while time.monotonic() < deadline:
+            challenge = _ok(client.get(f"/api/challenges/{task_id}"))
+            last_status = challenge["status"]
+            if last_status in ("running", "error"):
+                break
+            time.sleep(2)
+        assert last_status == "running", f"Challenge did not reach running state, final status: {last_status}"
 
         endpoint = challenge["target_url"]
         assert endpoint

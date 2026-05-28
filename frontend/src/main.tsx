@@ -150,6 +150,7 @@ function App() {
   }, [selectedId, token]);
 
   const running = selected ? isRunning(selected.status) : false;
+  const starting = selected?.status === "starting";
   const solved = selected?.status === "solved";
 
   return (
@@ -204,11 +205,11 @@ function App() {
                     <h2>{selected.title}</h2>
                   </div>
                   <div className="actionCluster">
-                    <button className="solid" onClick={() => runAction(async () => { await api(`/api/challenges/${selected.id}/start`, { method: "POST" }); })} disabled={busy || running}>
+                    <button className="solid" onClick={() => runAction(async () => { await api(`/api/challenges/${selected.id}/start`, { method: "POST" }); })} disabled={busy || running || starting}>
                       <Play size={17} />
-                      {running ? "运行中" : selected.status === "solved" || selected.status === "error" ? "重置环境" : "启动环境"}
+                      {starting ? "启动中" : running ? "运行中" : selected.status === "solved" || selected.status === "error" ? "重置环境" : "启动环境"}
                     </button>
-                    <button className="ghost danger" onClick={() => runAction(async () => { await api(`/api/challenges/${selected.id}/stop`, { method: "POST" }); })} disabled={busy || !running}>
+                    <button className="ghost danger" onClick={() => runAction(async () => { await api(`/api/challenges/${selected.id}/stop`, { method: "POST" }); })} disabled={busy || (!running && !starting)}>
                       <Square size={16} />
                       停止
                     </button>
@@ -285,9 +286,9 @@ function App() {
                 <div className="submissionDock">
                   <label>
                     <Flag size={16} />
-                    <input value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="FLAG{...}" disabled={!running && !solved} />
+                    <input value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="FLAG{...}" disabled={selected.status !== "running" && !solved} />
                   </label>
-                  <button className="solid" onClick={() => runAction(async () => { const r = await api<{ accepted: boolean; judged: boolean; correct: boolean | null; message: string }>(`/api/challenges/${selected.id}/submit`, { method: "POST", body: JSON.stringify({ answer }) }); if (r.accepted) { setAnswer(""); setSubmissionMessage(r.judged ? (r.correct ? "提交正确" : "提交错误") : "提交已记录，当前题目未配置平台判题"); } })} disabled={busy || !running || !answer.trim()}>
+                  <button className="solid" onClick={() => runAction(async () => { const r = await api<{ accepted: boolean; judged: boolean; correct: boolean | null; message: string }>(`/api/challenges/${selected.id}/submit`, { method: "POST", body: JSON.stringify({ answer }) }); if (r.accepted) { setAnswer(""); setSubmissionMessage(r.judged ? (r.correct ? "提交正确" : "提交错误") : "提交已记录，当前题目未配置平台判题"); } })} disabled={busy || selected.status !== "running" || !answer.trim()}>
                     提交 Flag
                   </button>
                 </div>
@@ -461,6 +462,7 @@ function StatusPill({ value }: { value: string }) {
 function statusLabel(value: string) {
   const labels: Record<string, string> = {
     not_started: "未开始",
+    starting: "启动中",
     running: "运行中",
     solved: "已解出",
     error: "错误",

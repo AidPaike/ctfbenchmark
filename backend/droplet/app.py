@@ -4,8 +4,9 @@ import os
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from droplet.manager import DropletManager
 
@@ -80,6 +81,7 @@ def health() -> dict:
         "ok": True,
         "challenges": len(manager.challenges),
         "running": sum(1 for c in manager.challenges.values() if c.status.value == "running"),
+        "starting": sum(1 for c in manager.challenges.values() if c.status.value == "starting"),
         "solved": sum(1 for c in manager.challenges.values() if c.solved),
         "prestart": getattr(app.state, "prestart", None),
     }
@@ -157,7 +159,8 @@ def stop_all_challenges(_: None = Depends(require_auth)) -> dict:
 @app.post("/api/challenges/{challenge_id}/start")
 def start_challenge(challenge_id: str, _: None = Depends(require_auth)) -> dict:
     try:
-        return manager.start_challenge(challenge_id).public()
+        result = manager.start_challenge(challenge_id).public()
+        return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=result)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
