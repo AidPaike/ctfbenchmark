@@ -357,3 +357,22 @@ data/work/challenges/xben-001-24/
 停止后，运行态目录会被清理。平台不会修改 `datasets/` 下的原题文件。
 
 旧版原型中的 `data/work/attempts/` 属于 session/attempt 设计残留；当前版本启动时会自动删除该目录。
+
+## 前端约束
+
+- 不展示源码路径、Compose 路径、`.env` 或 flag。
+- 提交接口在没有显式 judge 时只展示"已记录"，不能暗示已经判定正确。
+- 不伪造 LLM 成本、token、turns。
+- 活动链为空时展示空状态。
+- 环境启动失败时展示 `error_message`，并允许用户重试。
+- 明暗主题都要保证三列布局不重叠。
+
+## 页面结构
+
+主页三列：
+
+1. 左侧：Benchmark/题目列表。
+2. 中间：题目详情、目标地址、启动/停止、提示、Flag 提交。
+3. 右侧：LLM / Agent 活动链。
+
+活动链目前读取平台事件日志，不展示伪造 token/cost。外部 Agent 的 LLM 轨迹只有在 Agent 主动上报或后续接入 LLM Gateway 后才可统计。
