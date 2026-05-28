@@ -69,6 +69,10 @@ function App() {
   const [hintContent, setHintContent] = useState<string | null>(null);
   const [submissionMessage, setSubmissionMessage] = useState<string | null>(null);
   const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [eventLimit, setEventLimit] = useState<number>(() => {
+    const saved = localStorage.getItem("droplet_event_limit");
+    return saved ? parseInt(saved, 10) : 200;
+  });
 
   const selected = useMemo(() => challenges.find((c) => c.id === selectedId), [challenges, selectedId]);
   const groups = useMemo(() => groupChallenges(challenges), [challenges]);
@@ -102,12 +106,12 @@ function App() {
     }
   }
 
-  async function refreshEvents(challengeId = selectedId) {
+  async function refreshEvents(challengeId = selectedId, limit = eventLimit) {
     if (!challengeId) {
       setEvents([]);
       return;
     }
-    const data = await api<AuditEvent[]>(`/api/challenges/${challengeId}/events?limit=200`);
+    const data = await api<AuditEvent[]>(`/api/challenges/${challengeId}/events?limit=${limit}`);
     setEvents(data);
   }
 
@@ -147,7 +151,7 @@ function App() {
       refreshEvents(selectedId).catch(() => undefined);
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [selectedId, token]);
+  }, [selectedId, token, eventLimit]);
 
   const running = selected ? isRunning(selected.status) : false;
   const starting = selected?.status === "starting";
@@ -313,7 +317,17 @@ function App() {
           )}
         </section>
 
-        <ActivityRail selected={selected} events={events} onRefresh={() => refreshEvents()} />
+        <ActivityRail
+          selected={selected}
+          events={events}
+          onRefresh={() => refreshEvents()}
+          eventLimit={eventLimit}
+          onLimitChange={(limit) => {
+            setEventLimit(limit);
+            localStorage.setItem("droplet_event_limit", String(limit));
+            refreshEvents(undefined, limit);
+          }}
+        />
       </section>
     </main>
   );
@@ -324,10 +338,14 @@ function ActivityRail({
   selected,
   events,
   onRefresh,
+  eventLimit,
+  onLimitChange,
 }: {
   selected: Challenge | undefined;
   events: AuditEvent[];
   onRefresh: () => void;
+  eventLimit: number;
+  onLimitChange: (limit: number) => void;
 }) {
   const errors = events.filter((event) => event.level === "error").length;
   const visible = [...events].reverse();
@@ -342,6 +360,18 @@ function ActivityRail({
         <div className="traceStats">
           <span>{events.length} 事件</span>
           <span>{errors} 错误</span>
+          <select
+            className="limitSelect"
+            value={eventLimit}
+            onChange={(e) => onLimitChange(parseInt(e.target.value, 10))}
+            title="显示数量"
+          >
+            <option value={10}>近 10 条</option>
+            <option value={50}>近 50 条</option>
+            <option value={100}>近 100 条</option>
+            <option value={200}>近 200 条</option>
+            <option value={500}>近 500 条</option>
+          </select>
           <button className="iconButton ghost" onClick={onRefresh} title="刷新活动链" disabled={!selected}>
             <RefreshCw size={16} />
           </button>
