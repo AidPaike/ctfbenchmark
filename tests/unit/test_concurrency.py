@@ -134,6 +134,61 @@ def test_start_challenge_counts_starting_towards_limit(tmp_path, monkeypatch) ->
     assert calls == []
 
 
+def test_stop_challenge_sets_stopping_state_and_spawns_background_thread(tmp_path, monkeypatch) -> None:
+    template = tmp_path / "template"
+    challenge = _make_challenge(template)
+    challenge.status = ChallengeStatus.running
+
+    manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
+    manager.challenges = {challenge.id: challenge}
+
+    stopped = []
+
+    def fake_do_stop(cid: str) -> None:
+        stopped.append(cid)
+
+    monkeypatch.setattr(manager, "_do_stop_challenge", fake_do_stop)
+
+    result = manager.stop_challenge(challenge.id)
+
+    assert result.status == ChallengeStatus.stopping
+    assert stopped == [challenge.id]
+
+
+def test_stop_challenge_returns_existing_when_already_stopping(tmp_path, monkeypatch) -> None:
+    template = tmp_path / "template"
+    challenge = _make_challenge(template)
+    challenge.status = ChallengeStatus.stopping
+
+    manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
+    manager.challenges = {challenge.id: challenge}
+
+    calls = []
+    monkeypatch.setattr(manager, "_do_stop_challenge", lambda cid: calls.append(cid))
+
+    result = manager.stop_challenge(challenge.id)
+
+    assert result.status == ChallengeStatus.stopping
+    assert calls == []
+
+
+def test_stop_challenge_is_noop_for_not_started(tmp_path, monkeypatch) -> None:
+    template = tmp_path / "template"
+    challenge = _make_challenge(template)
+    challenge.status = ChallengeStatus.not_started
+
+    manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
+    manager.challenges = {challenge.id: challenge}
+
+    calls = []
+    monkeypatch.setattr(manager, "_do_stop_challenge", lambda cid: calls.append(cid))
+
+    result = manager.stop_challenge(challenge.id)
+
+    assert result.status == ChallengeStatus.not_started
+    assert calls == []
+
+
 def test_stop_challenge_clears_starting_state(tmp_path, monkeypatch) -> None:
     template = tmp_path / "template"
     challenge = _make_challenge(template)
@@ -142,11 +197,56 @@ def test_stop_challenge_clears_starting_state(tmp_path, monkeypatch) -> None:
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
     manager.challenges = {challenge.id: challenge}
 
-    monkeypatch.setattr(manager, "_stop_compose", lambda c: None)
+    monkeypatch.setattr(manager, "_do_stop_challenge", lambda cid: None)
 
     result = manager.stop_challenge(challenge.id)
 
-    assert result.status == ChallengeStatus.not_started
+    assert result.status == ChallengeStatus.stopping
+    # After the background thread runs, it becomes not_started
+    manager._stop_compose(challenge)
+    with manager._start_lock:
+        if challenge.status == ChallengeStatus.stopping:
+            challenge.status = ChallengeStatus.not_started
+    assert challenge.status == ChallengeStatus.not_started
+
+
+def test_start_challenge_returns_existing_when_stopping(tmp_path, monkeypatch) -> None:
+    template = tmp_path / "template"
+    challenge = _make_challenge(template)
+    challenge.status = ChallengeStatus.stopping
+
+    manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
+    manager.challenges = {challenge.id: challenge}
+
+    calls = []
+    monkeypatch.setattr(manager, "_do_start_challenge", lambda cid: calls.append(cid))
+
+    result = manager.start_challenge(challenge.id)
+
+    assert result.status == ChallengeStatus.stopping
+    assert calls == []
+
+
+def test_stop_challenge_counts_towards_active_limit(tmp_path, monkeypatch) -> None:
+    template = tmp_path / "template"
+
+    manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
+    manager.max_concurrent = 2
+
+    for i in range(3):
+        c = _make_challenge(tmp_path / f"template_{i}", f"demo_{i}")
+        manager.challenges[c.id] = c
+
+    manager.challenges["demo_0"].status = ChallengeStatus.running
+    manager.challenges["demo_1"].status = ChallengeStatus.stopping
+
+    calls = []
+    monkeypatch.setattr(manager, "_do_start_challenge", lambda cid: calls.append(cid))
+
+    with pytest.raises(RuntimeError, match="Maximum concurrent environments"):
+        manager.start_challenge("demo_2")
+
+    assert calls == []
 
 
 def test_stats_includes_starting_count(tmp_path) -> None:

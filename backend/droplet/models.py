@@ -19,6 +19,7 @@ class ChallengeStatus(str, Enum):
     not_started = "not_started"
     starting = "starting"
     running = "running"
+    stopping = "stopping"
     solved = "solved"
     error = "error"
 

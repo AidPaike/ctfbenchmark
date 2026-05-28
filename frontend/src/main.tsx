@@ -146,15 +146,15 @@ function App() {
   }, [selectedId]);
 
   useEffect(() => {
-    if (!selectedId) return;
     const timer = window.setInterval(() => {
-      refreshEvents(selectedId).catch(() => undefined);
+      refresh().catch(() => undefined);
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [selectedId, token, eventLimit]);
+  }, [token]);
 
-  const running = selected ? isRunning(selected.status) : false;
+  const running = selected?.status === "running";
   const starting = selected?.status === "starting";
+  const stopping = selected?.status === "stopping";
   const solved = selected?.status === "solved";
 
   return (
@@ -209,11 +209,11 @@ function App() {
                     <h2>{selected.title}</h2>
                   </div>
                   <div className="actionCluster">
-                    <button className="solid" onClick={() => runAction(async () => { await api(`/api/challenges/${selected.id}/start`, { method: "POST" }); })} disabled={busy || running || starting}>
+                    <button className="solid" onClick={() => runAction(async () => { await api(`/api/challenges/${selected.id}/start`, { method: "POST" }); })} disabled={running || starting || stopping}>
                       <Play size={17} />
-                      {starting ? "启动中" : running ? "运行中" : selected.status === "solved" || selected.status === "error" ? "重置环境" : "启动环境"}
+                      {starting ? "启动中" : stopping ? "停止中" : running ? "运行中" : selected.status === "solved" || selected.status === "error" ? "重置环境" : "启动环境"}
                     </button>
-                    <button className="ghost danger" onClick={() => runAction(async () => { await api(`/api/challenges/${selected.id}/stop`, { method: "POST" }); })} disabled={busy || (!running && !starting)}>
+                    <button className="ghost danger" onClick={() => runAction(async () => { await api(`/api/challenges/${selected.id}/stop`, { method: "POST" }); })} disabled={!running && !starting && !stopping}>
                       <Square size={16} />
                       停止
                     </button>
@@ -494,6 +494,7 @@ function statusLabel(value: string) {
     not_started: "未开始",
     starting: "启动中",
     running: "运行中",
+    stopping: "停止中",
     solved: "已解出",
     error: "错误",
   };
@@ -501,7 +502,7 @@ function statusLabel(value: string) {
 }
 
 function isRunning(status: string) {
-  return status === "running";
+  return status === "running" || status === "starting" || status === "stopping";
 }
 
 function groupChallenges(challenges: Challenge[]) {

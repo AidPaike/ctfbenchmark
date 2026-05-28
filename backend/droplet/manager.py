@@ -113,7 +113,7 @@ class DropletManager:
         challenge = self.get_challenge(challenge_id)
 
         with self._start_lock:
-            if challenge.status == ChallengeStatus.starting:
+            if challenge.status in (ChallengeStatus.starting, ChallengeStatus.stopping):
                 return challenge
 
             if challenge.status == ChallengeStatus.running:
@@ -149,7 +149,7 @@ class DropletManager:
         return sum(
             1
             for c in self.challenges.values()
-            if c.status in (ChallengeStatus.running, ChallengeStatus.starting)
+            if c.status in (ChallengeStatus.running, ChallengeStatus.starting, ChallengeStatus.stopping)
         )
 
     # [8] Background worker: performs the actual Docker Compose lifecycle
@@ -246,7 +246,7 @@ class DropletManager:
         stopped: list[str] = []
         errors: dict[str, str] = {}
         for challenge in list(self.challenges.values()):
-            if challenge.status != ChallengeStatus.running:
+            if challenge.status not in (ChallengeStatus.running, ChallengeStatus.starting):
                 continue
             try:
                 self.stop_challenge(challenge.id)
@@ -257,25 +257,65 @@ class DropletManager:
 
     def stop_challenge(self, challenge_id: str) -> Challenge:
         challenge = self.get_challenge(challenge_id)
-        if challenge.status in (ChallengeStatus.running, ChallengeStatus.starting):
-            self._stop_compose(challenge)
-            challenge.status = ChallengeStatus.not_started
-            challenge.target_url = None
-            challenge.ports = []
-            challenge.work_dir = None
-            challenge.compose_project = None
-            challenge.finished_at = now()
-            self.events.record(
-                "challenge_stopped",
-                "题目环境已停止",
-                challenge_id=challenge.id,
-            )
+        with self._start_lock:
+            if challenge.status == ChallengeStatus.stopping:
+                return challenge
+            if challenge.status not in (ChallengeStatus.running, ChallengeStatus.starting):
+                return challenge
+            challenge.status = ChallengeStatus.stopping
+
+        self.events.record(
+            "challenge_stop_requested",
+            "请求停止题目环境",
+            challenge_id=challenge.id,
+            data={"status": challenge.status.value},
+        )
+
+        thread = threading.Thread(
+            target=self._do_stop_challenge,
+            args=(challenge_id,),
+            daemon=True,
+        )
+        thread.start()
         return challenge
+
+    def _do_stop_challenge(self, challenge_id: str) -> None:
+        challenge = self.get_challenge(challenge_id)
+        self._stop_compose(challenge)
+        with self._start_lock:
+            if challenge.status == ChallengeStatus.stopping:
+                challenge.status = ChallengeStatus.not_started
+                challenge.target_url = None
+                challenge.ports = []
+                challenge.work_dir = None
+                challenge.compose_project = None
+                challenge.finished_at = now()
+        self.events.record(
+            "challenge_stopped",
+            "题目环境已停止",
+            challenge_id=challenge.id,
+        )
 
     def reset_challenge(self, challenge_id: str) -> Challenge:
         challenge = self.get_challenge(challenge_id)
-        self.stop_challenge(challenge_id)
-        return self.start_challenge(challenge.id)
+        with self._start_lock:
+            if challenge.status in (ChallengeStatus.starting, ChallengeStatus.stopping):
+                return challenge
+            challenge.status = ChallengeStatus.starting
+            challenge.error_message = None
+
+        thread = threading.Thread(
+            target=self._do_reset_challenge,
+            args=(challenge_id,),
+            daemon=True,
+        )
+        thread.start()
+        return challenge
+
+    def _do_reset_challenge(self, challenge_id: str) -> None:
+        challenge = self.get_challenge(challenge_id)
+        self._stop_compose(challenge)
+        self._do_start_challenge(challenge_id)
 
     # [9] Auto-judge submission by comparing the answer against the expected flag
     # 通过将答案与期望的 Flag 比较来自动判题

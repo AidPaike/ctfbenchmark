@@ -507,7 +507,8 @@ h2 {
 }
 
 .statusDot.running,
-.statusDot.starting {
+.statusDot.starting,
+.statusDot.stopping {
   background: #ffc857;
   box-shadow: 0 0 12px rgba(255, 200, 87, 0.5);
 }
@@ -802,7 +803,8 @@ h2 {
 }
 
 .statusPill.running,
-.statusPill.starting {
+.statusPill.starting,
+.statusPill.stopping {
   background: rgba(255, 200, 87, 0.12);
   border-color: rgba(255, 200, 87, 0.45);
   color: #ffe0a0;
@@ -1507,7 +1509,8 @@ h2 {
 }
 
 :root[data-theme="light"] .statusDot.running,
-:root[data-theme="light"] .statusDot.starting {
+:root[data-theme="light"] .statusDot.starting,
+:root[data-theme="light"] .statusDot.stopping {
   background: #d4a01a;
   box-shadow: 0 0 12px rgba(212, 160, 26, 0.4);
 }
@@ -1524,7 +1527,8 @@ h2 {
 }
 
 :root[data-theme="light"] .statusPill.running,
-:root[data-theme="light"] .statusPill.starting {
+:root[data-theme="light"] .statusPill.starting,
+:root[data-theme="light"] .statusPill.stopping {
   background: rgba(212, 160, 26, 0.1);
   border-color: rgba(212, 160, 26, 0.35);
   color: #8a6a10;
