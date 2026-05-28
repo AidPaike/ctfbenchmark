@@ -1,20 +1,25 @@
 from __future__ import annotations
 
+import logging
 import os
+import time
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from droplet.database import init_db, migrate_jsonl_to_sqlite
 from droplet.events import DEFAULT_EVENT_LOG
+from droplet.logging_config import setup_logging
 from droplet.manager import DropletManager
 
 
 # [1] Module-level singleton: one DropletManager instance shared across all requests
 # 模块级单例：一个 DropletManager 实例被所有请求共享
+logger = logging.getLogger("droplet.app")
+
 ADMIN_TOKEN = "droplet_dev_admin"
 manager = DropletManager(
     dataset_root=Path(os.getenv("DROPLET_DATASET_ROOT", "datasets/demo-xbow")),
@@ -62,13 +67,34 @@ app.add_middleware(
 )
 
 
+# [5] Request logging middleware: captures method, path, status, and duration
+# 请求日志中间件：记录方法、路径、状态和耗时
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration_ms = round((time.time() - start) * 1000, 2)
+    logger.info(
+        f"{request.method} {request.url.path} → {response.status_code} ({duration_ms}ms)",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": duration_ms,
+        },
+    )
+    return response
+
+
 # [5] FastAPI lifecycle hooks: load challenges on startup, graceful shutdown on exit
 # FastAPI 生命周期钩子：启动时加载题目，退出时优雅关闭
 @app.on_event("startup")
 def startup() -> None:
+    setup_logging()
     init_db()
     migrate_jsonl_to_sqlite(DEFAULT_EVENT_LOG)
     manager.load_tasks()
+    logger.info("Droplet startup complete", extra={"challenge_count": len(manager.challenges)})
     app.state.prestart = None
     if _env_enabled("DROPLET_PRESTART_CHALLENGES", default=True):
         app.state.prestart = manager.start_all(_prestart_ids())
@@ -262,8 +288,8 @@ def compat_answer(payload: dict, _: None = Depends(require_auth)) -> dict:
         challenge = manager.get_challenge(payload["challenge_code"].lower())
         result = manager.submit(challenge.id, payload["answer"])
         return {
-            "correct": False,
-            "judged": False,
+            "correct": result["correct"],
+            "judged": result["judged"],
             "accepted": bool(result["accepted"]),
             "earned_points": 0,
             "is_solved": challenge.solved,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import socket
@@ -17,6 +18,8 @@ import yaml
 from droplet.datasets import DatasetLoader, read_env_flag
 from droplet.events import EventStore
 from droplet.models import Challenge, ChallengeStatus, now
+
+logger = logging.getLogger("droplet.manager")
 
 
 # [1] Proxy constants cover both upper and lower case because different tools (curl, pip, Docker) respect different conventions
@@ -88,11 +91,13 @@ class DropletManager:
     # [6] Delegates discovery to the injected DatasetLoader; records an event for observability
     # 将发现委托给注入的 DatasetLoader；记录事件以便可观测性
     def load_tasks(self) -> None:
+        logger.info(f"Loading challenges from {self.dataset_root}")
         self.challenges = self.dataset_loader.load(
             self.dataset_root,
             read_flag=read_env_flag,
             infer_expose=self._infer_expose,
         )
+        logger.info(f"Loaded {len(self.challenges)} challenges")
         self.events.record(
             "challenges_loaded",
             "题目元数据已加载",
@@ -121,6 +126,11 @@ class DropletManager:
 
             active_count = self._count_active_challenges()
             if active_count >= self.max_concurrent:
+                logger.warning(
+                    f"Concurrent limit reached ({active_count}/{self.max_concurrent}), "
+                    f"cannot start {challenge_id}",
+                    extra={"challenge_id": challenge_id},
+                )
                 raise RuntimeError(
                     f"Maximum concurrent environments ({self.max_concurrent}) reached. "
                     f"Please stop another environment first."
@@ -129,6 +139,7 @@ class DropletManager:
             challenge.status = ChallengeStatus.starting
             challenge.error_message = None
 
+        logger.info(f"Starting challenge {challenge_id}", extra={"challenge_id": challenge_id})
         self.events.record(
             "challenge_start_requested",
             "请求启动题目环境",
@@ -183,15 +194,24 @@ class DropletManager:
             challenge.compose_project = result["project"]
             challenge.target_url = result["target_url"]
             challenge.ports = result["ports"]
-            challenge.status = ChallengeStatus.running
             challenge.started_at = now()
+            logger.info(
+                f"Challenge {challenge_id} started on {challenge.target_url}",
+                extra={"challenge_id": challenge_id, "target_url": challenge.target_url},
+            )
             self.events.record(
                 "challenge_started",
                 "题目环境启动完成",
                 challenge_id=challenge.id,
                 data={"target_url": challenge.target_url, "ports": challenge.ports},
             )
+            challenge.status = ChallengeStatus.running
         except Exception as exc:
+            logger.error(
+                f"Challenge {challenge_id} failed to start: {exc}",
+                extra={"challenge_id": challenge_id},
+                exc_info=True,
+            )
             if challenge.status == ChallengeStatus.starting:
                 challenge.status = ChallengeStatus.error
                 challenge.error_message = str(exc)
@@ -264,6 +284,7 @@ class DropletManager:
                 return challenge
             challenge.status = ChallengeStatus.stopping
 
+        logger.info(f"Stopping challenge {challenge_id}", extra={"challenge_id": challenge_id})
         self.events.record(
             "challenge_stop_requested",
             "请求停止题目环境",
@@ -290,6 +311,7 @@ class DropletManager:
                 challenge.work_dir = None
                 challenge.compose_project = None
                 challenge.finished_at = now()
+        logger.info(f"Challenge {challenge_id} stopped", extra={"challenge_id": challenge_id})
         self.events.record(
             "challenge_stopped",
             "题目环境已停止",
@@ -335,6 +357,15 @@ class DropletManager:
             challenge.status = ChallengeStatus.solved
             challenge.finished_at = now()
             self._stop_compose(challenge)
+            logger.info(
+                f"Challenge {challenge_id} solved!",
+                extra={"challenge_id": challenge_id, "score": score_after},
+            )
+        else:
+            logger.info(
+                f"Challenge {challenge_id} incorrect submission ({challenge.submission_count} total)",
+                extra={"challenge_id": challenge_id},
+            )
 
         self.events.record(
             "submission_judged",
@@ -427,6 +458,10 @@ class DropletManager:
         if _env_enabled("DROPLET_FORCE_REBUILD"):
             command.insert(-1, "--build")
         docker_env = self._docker_environment()
+        logger.debug(
+            f"Docker compose up: {' '.join(command)}",
+            extra={"challenge_id": challenge.id, "docker_command": " ".join(command)},
+        )
         try:
             result = subprocess.run(
                 command,
@@ -446,6 +481,10 @@ class DropletManager:
             ) from exc
         if result.returncode != 0:
             detail = _compose_error(command, result)
+            logger.error(
+                f"Docker compose failed for {challenge.id}: {detail[:200]}",
+                extra={"challenge_id": challenge.id, "docker_command": " ".join(command)},
+            )
             subprocess.run(
                 ["docker", "compose", "-p", project, "-f", str(compose_path), "down", "-v", "--remove-orphans"],
                 cwd=str(work_dir), env=docker_env, check=False, capture_output=True, text=True,
@@ -512,6 +551,10 @@ class DropletManager:
                 if compose_path.exists():
                     command.extend(["-f", str(compose_path)])
             command.extend(["down", "-v", "--remove-orphans"])
+            logger.debug(
+                f"Docker compose down: {' '.join(command)}",
+                extra={"challenge_id": challenge.id, "docker_command": " ".join(command)},
+            )
             subprocess.run(
                 command,
                 cwd=work_dir or None,
@@ -571,6 +614,10 @@ class DropletManager:
             if challenge.status != ChallengeStatus.running:
                 continue
             if not self._is_compose_running(challenge):
+                logger.warning(
+                    f"Challenge {challenge.id} stopped externally (detected by watchdog)",
+                    extra={"challenge_id": challenge.id},
+                )
                 self._stop_compose(challenge)
                 challenge.status = ChallengeStatus.not_started
                 challenge.target_url = None
