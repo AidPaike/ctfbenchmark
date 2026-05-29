@@ -527,6 +527,10 @@ h2 {
   width: 9px;
 }
 
+.statusDot.not_started {
+  background: #53615e;
+}
+
 .statusDot.running,
 .statusDot.starting,
 .statusDot.stopping {
@@ -537,6 +541,11 @@ h2 {
 .statusDot.solved {
   background: #68f0a8;
   box-shadow: 0 0 12px rgba(104, 240, 168, 0.5);
+}
+
+.statusDot.error {
+  background: #ff7878;
+  box-shadow: 0 0 12px rgba(255, 120, 120, 0.5);
 }
 
 .statusDot.failed,
@@ -823,6 +832,12 @@ h2 {
   text-transform: uppercase;
 }
 
+.statusPill.not_started {
+  background: rgba(83, 97, 94, 0.12);
+  border-color: rgba(83, 97, 94, 0.45);
+  color: #bdcbc7;
+}
+
 .statusPill.running,
 .statusPill.starting,
 .statusPill.stopping {
@@ -836,6 +851,12 @@ h2 {
   background: rgba(104, 240, 168, 0.12);
   border-color: rgba(104, 240, 168, 0.45);
   color: #a5ffc9;
+}
+
+.statusPill.error {
+  background: rgba(255, 120, 120, 0.12);
+  border-color: rgba(255, 120, 120, 0.45);
+  color: #ffb7b7;
 }
 
 .statusPill.failed,
@@ -1605,6 +1626,10 @@ h2 {
   color: #a03030;
 }
 
+:root[data-theme="light"] .statusDot.not_started {
+  background: #8a9a95;
+}
+
 :root[data-theme="light"] .statusDot.running,
 :root[data-theme="light"] .statusDot.starting,
 :root[data-theme="light"] .statusDot.stopping {
@@ -1617,10 +1642,21 @@ h2 {
   box-shadow: 0 0 12px rgba(61, 184, 122, 0.35);
 }
 
+:root[data-theme="light"] .statusDot.error {
+  background: #d95454;
+  box-shadow: 0 0 12px rgba(217, 84, 84, 0.35);
+}
+
 :root[data-theme="light"] .statusDot.failed,
 :root[data-theme="light"] .statusDot.environment_error,
 :root[data-theme="light"] .statusDot.stopped {
   background: #d95454;
+}
+
+:root[data-theme="light"] .statusPill.not_started {
+  background: rgba(120, 140, 135, 0.1);
+  border-color: rgba(120, 140, 135, 0.35);
+  color: #5a6a65;
 }
 
 :root[data-theme="light"] .statusPill.running,
@@ -1636,6 +1672,12 @@ h2 {
   background: rgba(61, 184, 122, 0.1);
   border-color: rgba(61, 184, 122, 0.35);
   color: #1a7a4a;
+}
+
+:root[data-theme="light"] .statusPill.error {
+  background: rgba(217, 84, 84, 0.1);
+  border-color: rgba(217, 84, 84, 0.35);
+  color: #a03030;
 }
 
 :root[data-theme="light"] .statusPill.failed,

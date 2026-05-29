@@ -20,10 +20,12 @@ from droplet.manager import DropletManager
 # 模块级单例：一个 DropletManager 实例被所有请求共享
 logger = logging.getLogger("droplet.app")
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 ADMIN_TOKEN = "droplet_dev_admin"
 manager = DropletManager(
-    dataset_root=Path(os.getenv("DROPLET_DATASET_ROOT", "datasets/demo-xbow")),
-    work_root=Path(os.getenv("DROPLET_WORK_ROOT", "data/work")),
+    dataset_root=Path(os.getenv("DROPLET_DATASET_ROOT", _PROJECT_ROOT / "datasets" / "demo-xbow")),
+    work_root=Path(os.getenv("DROPLET_WORK_ROOT", _PROJECT_ROOT / "data" / "work")),
     public_host=os.getenv("DROPLET_PUBLIC_HOST", "127.0.0.1"),
 )
 
