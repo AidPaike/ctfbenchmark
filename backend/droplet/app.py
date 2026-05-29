@@ -152,6 +152,26 @@ def list_challenge_events(
     return manager.events.list(challenge_id=challenge_id, limit=limit)
 
 
+@app.post("/api/challenges/{challenge_id}/events/clear")
+def clear_challenge_events(challenge_id: str, _: None = Depends(require_auth)) -> dict:
+    try:
+        manager.get_challenge(challenge_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return manager.events.clear(challenge_id=challenge_id)
+
+
+@app.post("/api/events/clear")
+def clear_events(payload: dict | None = None, _: None = Depends(require_auth)) -> dict:
+    challenge_id = str(payload.get("challenge_id")) if payload and payload.get("challenge_id") else None
+    if challenge_id is not None:
+        try:
+            manager.get_challenge(challenge_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return manager.events.clear(challenge_id=challenge_id)
+
+
 @app.post("/api/challenges/{challenge_id}/events")
 def append_challenge_event(challenge_id: str, payload: dict, _: None = Depends(require_auth)) -> dict:
     try:
@@ -309,8 +329,8 @@ def compat_answer(payload: dict, _: None = Depends(require_auth)) -> dict:
         challenge = manager.get_challenge(payload["challenge_code"].lower())
         result = manager.submit(challenge.id, payload["answer"])
         return {
-            "correct": result["correct"],
-            "judged": result["judged"],
+            "correct": False,
+            "judged": False,
             "accepted": bool(result["accepted"]),
             "earned_points": 0,
             "is_solved": challenge.solved,

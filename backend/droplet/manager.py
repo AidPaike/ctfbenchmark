@@ -15,7 +15,7 @@ from typing import Any
 
 import yaml
 
-from droplet.datasets import DatasetLoader, read_env_flag
+from droplet.datasets import DatasetLoader
 from droplet.database import (
     ChallengeProgress,
     Submission,
@@ -102,7 +102,6 @@ class DropletManager:
         logger.info(f"Loading challenges from {self.dataset_root}")
         self.challenges = self.dataset_loader.load(
             self.dataset_root,
-            read_flag=read_env_flag,
             infer_expose=self._infer_expose,
         )
         logger.info(f"Loaded {len(self.challenges)} challenges")
@@ -497,57 +496,42 @@ class DropletManager:
             c.submission_count = 0
             c.score = 0.0
 
-    # [9] Auto-judge submission by comparing the answer against the expected flag
-    # 通过将答案与期望的 Flag 比较来自动判题
+    # [9] Submission recording: Droplet must not read challenge flags.
+    # 提交记录：Droplet 不读取题目 Flag，也不自动判题。
     def submit(self, challenge_id: str, answer: str) -> dict[str, Any]:
         challenge = self.get_challenge(challenge_id)
         if challenge.status != ChallengeStatus.running:
             raise ValueError("Challenge is not running")
 
         challenge.submission_count += 1
-        correct = answer.strip() == challenge.expected_flag.strip()
-        score_before = 1.0 if correct else 0.0
-        score_after = max(0.0, score_before + challenge.hint_penalty)
-
-        if correct:
-            challenge.solved = True
-            challenge.score = score_after
-            challenge.status = ChallengeStatus.solved
-            challenge.finished_at = now()
-            self._stop_compose(challenge)
-            logger.info(
-                f"Challenge {challenge_id} solved!",
-                extra={"challenge_id": challenge_id, "score": score_after},
-            )
-        else:
-            logger.info(
-                f"Challenge {challenge_id} incorrect submission ({challenge.submission_count} total)",
-                extra={"challenge_id": challenge_id},
-            )
+        logger.info(
+            f"Challenge {challenge_id} submission recorded ({challenge.submission_count} total)",
+            extra={"challenge_id": challenge_id},
+        )
 
         self._persist_progress(challenge)
-        self._record_submission(challenge, answer, correct, score_before, score_after)
+        self._record_submission(challenge, answer, False, 0.0, 0.0)
 
         self.events.record(
-            "submission_judged",
-            "提交已判题",
+            "submission_recorded",
+            "收到提交，未自动判题",
             challenge_id=challenge.id,
             data={
-                "correct": correct,
-                "score_before_hint_penalty": score_before,
-                "score_after_hint_penalty": score_after,
+                "accepted": True,
+                "judged": False,
+                "judge_mode": challenge.judge_mode,
                 "submission_count": challenge.submission_count,
             },
         )
 
         return {
             "accepted": True,
-            "judged": True,
-            "correct": correct,
-            "score_before_hint_penalty": score_before,
-            "score_after_hint_penalty": score_after,
+            "judged": False,
+            "correct": None,
+            "score_before_hint_penalty": None,
+            "score_after_hint_penalty": None,
             "submission_count": challenge.submission_count,
-            "message": "Correct!" if correct else "Incorrect flag",
+            "message": "submission recorded; no flag judge is configured",
         }
 
     def hint(self, challenge_id: str) -> dict[str, Any]:

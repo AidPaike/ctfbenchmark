@@ -14,7 +14,7 @@ def test_dataset_loader_rejects_unknown_adapter(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="Unsupported dataset adapter"):
-        DatasetLoader().load(tmp_path, infer_expose=lambda _path: [], read_flag=lambda _path: None)
+        DatasetLoader().load(tmp_path, infer_expose=lambda _path: [])
 
 
 def test_xbow_loader_does_not_require_or_read_env_flag(tmp_path: Path) -> None:
@@ -29,9 +29,9 @@ def test_xbow_loader_does_not_require_or_read_env_flag(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (challenge / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
-    (challenge / ".env").write_text("FLAG=flag{test}\n", encoding="utf-8")
 
-    loaded = DatasetLoader().load(tmp_path, infer_expose=lambda _path: [], read_flag=lambda _path: "")
+    loaded = DatasetLoader().load(tmp_path, infer_expose=lambda _path: [])
 
     assert loaded["xben-999-24"].title == "No Flag Read"
     assert loaded["xben-999-24"].judge_mode == "record_only"
+    assert loaded["xben-999-24"].dataset_id == tmp_path.name

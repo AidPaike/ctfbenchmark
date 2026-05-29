@@ -50,6 +50,18 @@ def test_event_store_respects_limit(tmp_path: Path) -> None:
     assert [e["message"] for e in events] == ["event-4", "event-3", "event-2"]
 
 
+def test_event_store_clear_archives_current_session_events(tmp_path: Path) -> None:
+    store = EventStore(tmp_path / "events.jsonl")
+    store.record("agent_event", "hide me", challenge_id="test")
+    store.record("agent_event", "keep me", challenge_id="other")
+
+    result = store.clear(challenge_id="test")
+
+    assert result == {"cleared": 1, "challenge_id": "test"}
+    assert store.list(challenge_id="test") == []
+    assert [event["message"] for event in store.list(challenge_id="other")] == ["keep me"]
+
+
 def test_event_store_list_without_challenge_id_returns_all(tmp_path: Path) -> None:
     store = EventStore(tmp_path / "events.jsonl")
     store.record("challenge_started", "global", challenge_id=None)
