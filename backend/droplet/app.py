@@ -204,6 +204,14 @@ def stop_challenge(challenge_id: str, _: None = Depends(require_auth)) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.post("/api/challenges/reset-all")
+def reset_all_challenges(_: None = Depends(require_auth)) -> dict:
+    try:
+        return manager.reset_all_challenges()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/challenges/{challenge_id}/reset")
 def reset_challenge(challenge_id: str, _: None = Depends(require_auth)) -> dict:
     try:
@@ -226,6 +234,19 @@ def hint(challenge_id: str, _: None = Depends(require_auth)) -> dict:
         return manager.hint(challenge_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/challenges/{challenge_id}/submissions")
+def list_submissions(
+    challenge_id: str,
+    limit: int = Query(default=50, ge=1, le=500),
+    _: None = Depends(require_auth),
+) -> list[dict]:
+    try:
+        manager.get_challenge(challenge_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return manager.get_submissions(challenge_id, limit=limit)
 
 
 @app.get("/api/stats")

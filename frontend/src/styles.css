@@ -1582,3 +1582,99 @@ h2 {
 :root[data-theme="light"] html {
   background: #f5f3ee;
 }
+
+/* ── Submission history panel ── */
+.submissionHistory {
+  margin-top: 12px;
+  background: rgba(12, 18, 16, 0.5);
+  border: 1px solid #263633;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.submissionList {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.submissionRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: rgba(7, 11, 11, 0.6);
+}
+
+.submissionRow.correct {
+  border-left: 3px solid #a3e635;
+}
+
+.submissionRow.incorrect {
+  border-left: 3px solid #f87171;
+}
+
+.submissionAnswer {
+  font-family: monospace;
+  color: #d6ff57;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.submissionResult {
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.submissionRow.correct .submissionResult {
+  color: #a3e635;
+}
+
+.submissionRow.incorrect .submissionResult {
+  color: #f87171;
+}
+
+.submissionScore {
+  color: #7ab8d4;
+  font-variant-numeric: tabular-nums;
+}
+
+.submissionTime {
+  color: #647c7a;
+  font-size: 11px;
+}
+
+/* ── Confirm dialog ── */
+.confirmActions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.confirmActions button {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+/* ── Light theme overrides ── */
+:root[data-theme="light"] .submissionHistory {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: #d0ddd6;
+}
+
+:root[data-theme="light"] .submissionRow {
+  background: rgba(245, 243, 238, 0.8);
+}
+
+:root[data-theme="light"] .submissionAnswer {
+  color: #2a6b4e;
+}
+
+:root[data-theme="light"] .submissionTime {
+  color: #8899a0;
+}

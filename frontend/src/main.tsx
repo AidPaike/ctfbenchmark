@@ -56,6 +56,16 @@ type AuditEvent = {
   data: Record<string, unknown>;
 };
 
+type Submission = {
+  id: number;
+  challenge_id: string;
+  answer: string;
+  correct: boolean;
+  score_before: number;
+  score_after: number;
+  created_at: string;
+};
+
 type ThemeMode = "dark" | "light";
 
 function App() {
@@ -73,6 +83,8 @@ function App() {
     const saved = localStorage.getItem("droplet_event_limit");
     return saved ? parseInt(saved, 10) : 200;
   });
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const selected = useMemo(() => challenges.find((c) => c.id === selectedId), [challenges, selectedId]);
   const groups = useMemo(() => groupChallenges(challenges), [challenges]);
@@ -115,6 +127,15 @@ function App() {
     setEvents(data);
   }
 
+  async function refreshSubmissions(challengeId = selectedId) {
+    if (!challengeId) {
+      setSubmissions([]);
+      return;
+    }
+    const data = await api<Submission[]>(`/api/challenges/${challengeId}/submissions?limit=50`);
+    setSubmissions(data);
+  }
+
   async function runAction(fn: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -143,6 +164,7 @@ function App() {
     setSubmissionMessage(null);
     setAnswer("");
     refreshEvents().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    refreshSubmissions().catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [selectedId]);
 
   useEffect(() => {
@@ -178,6 +200,9 @@ function App() {
           <button className="iconButton ghost" onClick={() => setTheme((v) => (v === "dark" ? "light" : "dark"))} title={theme === "dark" ? "切换白天模式" : "切换黑夜模式"}>
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
+          <button className="iconButton ghost danger" onClick={() => setShowResetConfirm(true)} disabled={busy} title="重置全部题目">
+            <RefreshCw size={18} />
+          </button>
           <button className="iconButton solid" onClick={() => runAction(async () => undefined)} disabled={busy} title="刷新">
             <RefreshCw size={18} />
           </button>
@@ -188,6 +213,17 @@ function App() {
         <div className="notice error">
           <CircleDot size={16} />
           <span>{error}</span>
+        </div>
+      )}
+
+      {showResetConfirm && (
+        <div className="notice warn">
+          <CircleDot size={16} />
+          <span>确定要重置所有题目进度吗？此操作不可撤销。</span>
+          <div className="confirmActions">
+            <button className="solid danger" onClick={() => runAction(async () => { await api("/api/challenges/reset-all", { method: "POST" }); setShowResetConfirm(false); })} disabled={busy}>确定重置</button>
+            <button className="ghost" onClick={() => setShowResetConfirm(false)} disabled={busy}>取消</button>
+          </div>
         </div>
       )}
 
@@ -308,6 +344,27 @@ function App() {
                   <div className="notice ok">
                     <CheckCircle2 size={16} />
                     <span>已解出！得分 {selected.score.toFixed(2)}</span>
+                  </div>
+                )}
+
+                {submissions.length > 0 && (
+                  <div className="submissionHistory">
+                    <div className="panelHeader">
+                      <div>
+                        <span>提交历史</span>
+                        <strong>{submissions.length} 次</strong>
+                      </div>
+                    </div>
+                    <div className="submissionList">
+                      {submissions.map((sub) => (
+                        <div key={sub.id} className={`submissionRow ${sub.correct ? "correct" : "incorrect"}`}>
+                          <span className="submissionAnswer">{sub.answer}</span>
+                          <span className="submissionResult">{sub.correct ? "正确" : "错误"}</span>
+                          <span className="submissionScore">{sub.score_after.toFixed(2)}</span>
+                          <span className="submissionTime">{formatTime(sub.created_at)}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </section>
