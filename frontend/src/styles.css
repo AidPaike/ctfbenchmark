@@ -412,6 +412,12 @@ h2 {
   min-width: 0;
 }
 
+.benchmarkName {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
 .benchmarkTop span {
   color: #91a19c;
   display: block;
@@ -433,6 +439,21 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.benchmarkRight em {
+  color: #81918d;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.countBadge {
+  background: #16201e;
+  border: 1px solid #2c3c38;
+  border-radius: 999px;
+  color: #d6ff57;
+  line-height: 1;
+  padding: 5px 8px;
 }
 
 .benchmarkMeta {
@@ -1133,6 +1154,82 @@ h2 {
   z-index: 20;
 }
 
+.dialogCard {
+  display: grid;
+  gap: 16px;
+  max-width: 560px;
+  padding: 18px;
+  width: min(560px, 100%);
+}
+
+.dialogHeader {
+  align-items: flex-start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.dialogHeader span {
+  color: #899693;
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.dialogHeader strong {
+  color: #f3f8f4;
+  display: block;
+  font-size: 20px;
+  margin-top: 4px;
+}
+
+.dialogIcon {
+  align-items: center;
+  border-radius: 7px;
+  display: inline-flex;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+}
+
+.dialogIcon.error {
+  background: rgba(255, 120, 120, 0.14);
+  color: #ff9c9c;
+}
+
+.dialogIcon.warn {
+  background: rgba(255, 200, 87, 0.14);
+  color: #ffd789;
+}
+
+.dialogCard p,
+.dialogCard pre {
+  color: #cbd8d3;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.dialogCard pre {
+  background: #080d0d;
+  border: 1px solid #263331;
+  border-radius: 7px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dialogActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.dialogPrimary {
+  justify-self: end;
+}
+
 .settingsModal {
   max-width: 820px;
   padding: 18px;
@@ -1677,4 +1774,177 @@ h2 {
 
 :root[data-theme="light"] .submissionTime {
   color: #8899a0;
+}
+
+/* ── Softer daylight theme: low-saturation mineral UI for long review sessions ── */
+:root[data-theme="light"] {
+  color: #24332f;
+  background: #e8efec;
+}
+
+:root[data-theme="light"] html {
+  background: #e8efec;
+}
+
+:root[data-theme="light"] .appFrame {
+  background:
+    linear-gradient(rgba(37, 67, 58, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 67, 58, 0.025) 1px, transparent 1px),
+    linear-gradient(180deg, #edf3f0 0%, #e5ece8 54%, #edf2ef 100%);
+  background-size: 28px 28px, 28px 28px, auto;
+}
+
+:root[data-theme="light"] h1,
+:root[data-theme="light"] h2,
+:root[data-theme="light"] .panelHeader strong,
+:root[data-theme="light"] .traceHeader strong,
+:root[data-theme="light"] .modalHeader strong,
+:root[data-theme="light"] .dialogHeader strong,
+:root[data-theme="light"] .statTile strong,
+:root[data-theme="light"] .metaCell strong,
+:root[data-theme="light"] .leaderHeroStats strong {
+  color: #1b2a26;
+}
+
+:root[data-theme="light"] .surface,
+:root[data-theme="light"] .statTile,
+:root[data-theme="light"] .benchmarkBlock,
+:root[data-theme="light"] .progressDeck,
+:root[data-theme="light"] .leaderHeroStats > div,
+:root[data-theme="light"] .metaCell,
+:root[data-theme="light"] .queueRow,
+:root[data-theme="light"] .traceEvent,
+:root[data-theme="light"] .emptyBox,
+:root[data-theme="light"] .dialogCard {
+  background: #f7faf8;
+  border-color: #c8d6d1;
+  color: #22332e;
+  box-shadow: 0 14px 34px rgba(38, 67, 58, 0.08);
+}
+
+:root[data-theme="light"] .topNav,
+:root[data-theme="light"] .tokenInput,
+:root[data-theme="light"] .submissionDock,
+:root[data-theme="light"] .segmentedControl,
+:root[data-theme="light"] .dialogCard pre,
+:root[data-theme="light"] input,
+:root[data-theme="light"] .limitSelect {
+  background: #eef4f1;
+  border-color: #c5d4cf;
+  color: #24332f;
+}
+
+:root[data-theme="light"] .solid,
+:root[data-theme="light"] .segmentedControl button.active {
+  background: #2f7c68;
+  color: #f8fcfa;
+}
+
+:root[data-theme="light"] .solid:hover:not(:disabled) {
+  background: #286d5b;
+}
+
+:root[data-theme="light"] .ghost {
+  background: #eef4f1;
+  border-color: #c5d4cf;
+  color: #283a35;
+}
+
+:root[data-theme="light"] .ghost:hover:not(:disabled) {
+  background: #e4eeea;
+  border-color: #9fb8af;
+}
+
+:root[data-theme="light"] .brandMark {
+  background: #2f7c68;
+  border-color: #2a6f5e;
+  color: #f8fcfa;
+  box-shadow: 0 0 0 4px rgba(47, 124, 104, 0.08);
+}
+
+:root[data-theme="light"] .benchmarkBlock.active {
+  border-color: #2f7c68;
+  box-shadow: inset 3px 0 0 #2f7c68;
+}
+
+:root[data-theme="light"] .benchmarkRight,
+:root[data-theme="light"] .railHeader strong,
+:root[data-theme="light"] .progressDeckHeader strong,
+:root[data-theme="light"] .taskLine strong,
+:root[data-theme="light"] .leaderRow strong {
+  color: #2f7c68;
+}
+
+:root[data-theme="light"] .countBadge,
+:root[data-theme="light"] .benchmarkMeta span,
+:root[data-theme="light"] .tagShelf span,
+:root[data-theme="light"] .hintChip,
+:root[data-theme="light"] .statusPill {
+  background: #e7f0ec;
+  border-color: #bfd0ca;
+  color: #36554c;
+}
+
+:root[data-theme="light"] .taskLine:hover,
+:root[data-theme="light"] .taskLine.active,
+:root[data-theme="light"] .leaderRow:hover {
+  background: #edf5f1;
+}
+
+:root[data-theme="light"] .targetBand {
+  background: linear-gradient(90deg, #edf5f1, #f7faf8);
+  border-color: #c3d3cd;
+}
+
+:root[data-theme="light"] .targetBand strong,
+:root[data-theme="light"] .tokenInput svg,
+:root[data-theme="light"] .submissionScore {
+  color: #386f9b;
+}
+
+:root[data-theme="light"] .submissionDock svg,
+:root[data-theme="light"] .submissionAnswer {
+  color: #2f7c68;
+}
+
+:root[data-theme="light"] .descriptionPanel p,
+:root[data-theme="light"] .dialogCard p,
+:root[data-theme="light"] .dialogCard pre,
+:root[data-theme="light"] .runMain span,
+:root[data-theme="light"] .queueRow time,
+:root[data-theme="light"] .leaderRow time {
+  color: #536761;
+}
+
+:root[data-theme="light"] .traceEvent pre {
+  color: #315a4f;
+}
+
+:root[data-theme="light"] .statusDot.running,
+:root[data-theme="light"] .statusDot.starting,
+:root[data-theme="light"] .statusDot.stopping,
+:root[data-theme="light"] .progressSegment.running {
+  background: #b8872d;
+  box-shadow: 0 0 12px rgba(184, 135, 45, 0.22);
+}
+
+:root[data-theme="light"] .statusDot.solved,
+:root[data-theme="light"] .progressSegment.solved {
+  background: #2f7c68;
+  box-shadow: 0 0 12px rgba(47, 124, 104, 0.22);
+}
+
+:root[data-theme="light"] .progressTrack {
+  background: #dbe6e1;
+  border-color: #c5d4cf;
+}
+
+:root[data-theme="light"] .progressSegment.not_started,
+:root[data-theme="light"] .legend.not_started {
+  background: #aebfba;
+}
+
+:root[data-theme="light"] .modalBackdrop {
+  background: rgba(28, 40, 36, 0.46);
+  backdrop-filter: blur(6px);
 }

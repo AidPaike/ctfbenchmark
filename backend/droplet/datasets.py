@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -15,7 +14,6 @@ from droplet.models import Challenge
 
 # [1] Type aliases make the function signatures self-documenting
 # 类型别名让函数签名自我文档化
-ReadFlag = Callable[[Path], str]
 InferExpose = Callable[[Path], list[dict[str, Any]]]
 
 
@@ -29,7 +27,6 @@ class DatasetAdapter(Protocol):
         dataset_root: Path,
         config: dict[str, Any],
         *,
-        read_flag: ReadFlag,
         infer_expose: InferExpose,
     ) -> Iterable[Challenge]:
         ...
@@ -50,7 +47,6 @@ class DatasetLoader:
         self,
         dataset_root: Path,
         *,
-        read_flag: ReadFlag,
         infer_expose: InferExpose,
     ) -> dict[str, Challenge]:
         manifest = yaml.safe_load((dataset_root / "droplet.yaml").read_text(encoding="utf-8")) or {}
@@ -63,7 +59,6 @@ class DatasetLoader:
             for challenge in adapter.discover(
                 dataset_root,
                 item,
-                read_flag=read_flag,
                 infer_expose=infer_expose,
             ):
                 loaded[challenge.id] = challenge
@@ -80,7 +75,6 @@ class XbowDatasetAdapter:
         dataset_root: Path,
         config: dict[str, Any],
         *,
-        read_flag: ReadFlag,
         infer_expose: InferExpose,
     ) -> Iterable[Challenge]:
         scan_root = dataset_root / config.get("path", "challenges")
@@ -96,15 +90,9 @@ class XbowDatasetAdapter:
             grouped[original_id].append((directory, meta))
 
         for original_id, candidates in sorted(grouped.items()):
-            # Prefer candidates with .env; fallback to lexicographic path order.
-            # 优先选择有 .env 的候选；否则按字典序路径排序。
-            directory, meta = sorted(
-                candidates,
-                key=lambda item: (not (item[0] / ".env").exists(), str(item[0])),
-            )[0]
-            env_path = directory / ".env"
-            if not env_path.exists():
-                continue
+            # Pick a stable path without inspecting .env or other secret-bearing files.
+            # 选择稳定路径，不检查 .env 或任何可能承载 secret 的文件。
+            directory, meta = sorted(candidates, key=lambda item: str(item[0]))[0]
             readme = directory / "README.md"
             yield Challenge(
                 id=original_id.lower(),
@@ -112,16 +100,16 @@ class XbowDatasetAdapter:
                 description=_public_description(readme, str(meta.get("description") or "")),
                 category=config.get("category") or "web",
                 task_type=config.get("task_type") or "web_ctf_online",
+                dataset_id=dataset_root.name,
                 difficulty={1: "easy", 2: "medium", 3: "hard"}.get(
                     int(meta.get("level") or 2),
                     "medium",
                 ),
                 tags=[str(tag) for tag in meta.get("tags", [])],
                 hint=str(h) if (h := meta.get("hint")) else None,
-                expected_flag=read_flag(env_path),
+                judge_mode=str(config.get("judge_mode") or "record_only"),
                 root=str(directory),
                 compose_path=str(directory / "docker-compose.yml"),
-                env_path=str(env_path),
                 expose=infer_expose(directory / "docker-compose.yml"),
             )
 
@@ -145,22 +133,3 @@ def _public_description(readme: Path, fallback: str) -> str:
 
     lines = [line for line in text.splitlines() if not line.strip().startswith("#")]
     return "\n".join(lines).strip() or fallback.strip()
-
-
-# [8] Read FLAG from .env file using shlex so values with spaces or quotes are handled correctly
-# 使用 shlex 从 .env 文件读取 FLAG，以便正确处理带空格或引号的值
-def read_env_flag(env_path: Path) -> str:
-    text = env_path.read_text(encoding="utf-8")
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        if key.strip() == "FLAG":
-            # shlex.split handles quoted values like "flag{hello world}"
-            # shlex.split 处理带引号的值，如 "flag{hello world}"
-            parsed = shlex.split(value.strip())
-            return parsed[0] if parsed else value.strip()
-    return ""

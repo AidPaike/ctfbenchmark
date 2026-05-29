@@ -7,7 +7,8 @@ venv/
 
 # Agent / dev tooling
 .agents/
-.claude/
+.claude/*
+!.claude/skills/
 .pytest_cache/
 
 # Work directories

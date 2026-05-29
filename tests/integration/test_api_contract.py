@@ -82,6 +82,7 @@ def test_challenges_are_loaded_without_old_runtime_model(api_contract) -> None:
     assert challenges[0]["id"] == "contract-001"
     assert challenges[0]["status"] == "not_started"
     assert challenges[0]["task_type"] == "web_ctf_online"
+    assert "dataset_id" in challenges[0]
     assert "expected_flag" not in challenges[0]
 
 
@@ -108,7 +109,7 @@ def test_start_all_starts_actual_challenge_services(api_contract) -> None:
     assert challenge["ports"] == [8080]
 
 
-def test_submit_judges_answer_against_expected_flag(api_contract) -> None:
+def test_submit_records_answer_without_reading_or_judging_flag(api_contract) -> None:
     client, _manager = api_contract
     client.post("/api/challenges/contract-001/start", headers=AUTH).raise_for_status()
 
@@ -121,8 +122,8 @@ def test_submit_judges_answer_against_expected_flag(api_contract) -> None:
     )
     assert recorded.status_code == 200
     assert recorded.json()["accepted"] is True
-    assert recorded.json()["judged"] is True
-    assert recorded.json()["correct"] is False
+    assert recorded.json()["judged"] is False
+    assert recorded.json()["correct"] is None
 
     challenge = client.get("/api/challenges", headers=AUTH).json()[0]
     assert challenge["status"] == "running"
@@ -160,12 +161,14 @@ def test_tencent_compat_api_returns_running_ports_and_accepts_answers(api_contra
     )
     assert rejected.status_code == 200
     result = rejected.json()
-    assert result["correct"] is False
-    assert result["judged"] is True
-    assert result["accepted"] is True
-    assert result["earned_points"] == 0
-    assert result["is_solved"] is False
-    assert result["message"] == "Incorrect flag"
+    assert result == {
+        "correct": False,
+        "judged": False,
+        "accepted": True,
+        "earned_points": 0,
+        "is_solved": False,
+        "message": "submission recorded; no flag judge is configured",
+    }
 
 
 def test_startup_can_prestart_selected_challenges(tmp_path: Path, monkeypatch) -> None:
@@ -225,3 +228,20 @@ def test_event_api_records_lifecycle_and_accepts_agent_events(api_contract) -> N
 
     all_events = client.get("/api/events?challenge_id=contract-001", headers=AUTH).json()
     assert all(event["challenge_id"] == "contract-001" for event in all_events)
+
+
+def test_event_api_can_clear_activity_without_deleting_rows(api_contract) -> None:
+    client, manager = api_contract
+    manager.events.clear_memory()
+
+    client.post("/api/challenges/contract-001/start", headers=AUTH).raise_for_status()
+    _wait_for_status(client, "running")
+    before = client.get("/api/challenges/contract-001/events", headers=AUTH).json()
+    assert before
+
+    cleared = client.post("/api/challenges/contract-001/events/clear", headers=AUTH)
+
+    assert cleared.status_code == 200
+    assert cleared.json()["cleared"] >= 1
+    after = client.get("/api/challenges/contract-001/events", headers=AUTH).json()
+    assert after == []
