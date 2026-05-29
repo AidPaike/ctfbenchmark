@@ -163,3 +163,30 @@ class TestSystemLogTable:
             # If the table doesn't exist, this would raise an OperationalError
             results = session.exec(select(SystemLog)).all()
             assert isinstance(results, list)
+
+
+class TestEarlyLogLoss:
+    def test_setup_logging_creates_tables_before_handler(self, tmp_path, monkeypatch):
+        """setup_logging must call init_db() internally so the first log is not lost.
+
+        Regression test for issue #5: when setup_logging() runs before init_db(),
+        the SQLiteLogHandler tries to write to a table that doesn't exist yet.
+        """
+        reset_engine()
+        db_path = tmp_path / "fresh.db"
+        monkeypatch.setenv("DROPLET_DATABASE_PATH", str(db_path))
+        reset_engine()
+
+        # Do NOT call init_db() — simulate first-ever startup
+        setup_logging()
+        logger = logging.getLogger("first_startup")
+        logger.info("early log during first startup")
+
+        engine = get_engine()
+        with Session(engine) as session:
+            results = session.exec(select(SystemLog)).all()
+            assert len(results) >= 1
+            assert any("early log during first startup" in r.message for r in results)
+
+        reset_engine()
+        monkeypatch.delenv("DROPLET_DATABASE_PATH", raising=False)

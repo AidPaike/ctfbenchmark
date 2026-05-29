@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlmodel import Session
 
-from droplet.database import SystemLog, get_engine
+from droplet.database import SystemLog, get_engine, init_db
 
 
 # ANSI color codes for terminal output
@@ -100,6 +100,11 @@ def setup_logging(
         database_level: Minimum level for SQLite persistence.
         terminal_level: Minimum level for terminal output.
     """
+    # Ensure DB tables exist before creating SQLiteLogHandler.
+    # Fixes issue #5: first startup loses early logs because the table
+    # doesn't exist yet when setup_logging() runs before init_db().
+    init_db()
+
     root = logging.getLogger()
     root.setLevel(level)
 
