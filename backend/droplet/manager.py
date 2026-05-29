@@ -450,8 +450,8 @@ class DropletManager:
         # 先剥离过时代理，再注入当前代理 —— 防止旧地址泄漏到构建中
         self._strip_proxy_config(work_dir, compose_path)
         self._apply_docker_proxy(work_dir, compose_path)
-        # [12] Dynamically assign host ports so multiple challenges can coexist without collisions
-        # 动态分配主机端口，使多个题目可以共存而不冲突
+        # [12] Let Docker pick host ports via "0:container_port" to eliminate the TOCTOU race.
+        # 让 Docker 通过 "0:container_port" 选择主机端口，消除 TOCTOU 竞争。
         exposed = self._rewrite_ports(compose_path, challenge.expose)
         project = f"{self.compose_prefix}_{challenge.id}"
         command = ["docker", "compose", "-p", project, "-f", str(compose_path), "up", "-d"]
@@ -491,6 +491,10 @@ class DropletManager:
             )
             raise RuntimeError(detail)
 
+        # [12a] Resolve the actual host ports Docker bound.  This is the source of truth.
+        # 解析 Docker 实际绑定主机端口。这是唯一可信来源。
+        exposed = self._resolve_ports(project, exposed, docker_env)
+
         target_url = None
         ports: list[int] = []
         if exposed:
@@ -523,6 +527,7 @@ class DropletManager:
         deadline = time.monotonic() + self.ready_timeout_seconds
         last_error = "no endpoint checked"
         pending = list(endpoints)
+        attempt = 0
         while pending and time.monotonic() < deadline:
             remaining = []
             for endpoint in pending:
@@ -534,7 +539,11 @@ class DropletManager:
             if not remaining:
                 return
             pending = remaining
-            time.sleep(1)
+            attempt += 1
+            # Exponential backoff capped at 5 seconds — fast at first for snappy
+            # services, then gentler for slow-starting containers.
+            delay = min(2 ** (attempt - 1) * 0.25, 5.0)
+            time.sleep(delay)
         if pending:
             labels = ", ".join(str(item.get("url") or item.get("label") or item) for item in pending)
             raise RuntimeError(f"Target endpoint not ready before timeout: {labels}; last_error={last_error}")
@@ -607,8 +616,9 @@ class DropletManager:
         while not self._watchdog_stop.wait(timeout=10):
             self._check_container_health()
 
-    # [15] If containers were killed externally (e.g. by an operator or OOM killer), sync state back to not_started
-    # 如果容器被外部杀死（例如运维人员或 OOM killer），将状态同步回 not_started
+    # [15] Watchdog: detect containers killed externally AND services that are running
+    # but no longer reachable (e.g. crashed process inside container).
+    # 守护线程：检测被外部杀死的容器，以及容器在运行但内部服务已崩溃的情况。
     def _check_container_health(self) -> None:
         for challenge in list(self.challenges.values()):
             if challenge.status != ChallengeStatus.running:
@@ -631,6 +641,38 @@ class DropletManager:
                     challenge_id=challenge.id,
                     level="warning",
                 )
+                continue
+
+            # Container is running — also verify the endpoint is reachable.
+            # 容器在运行，同时验证端口是否可达。
+            if challenge.ports and challenge.target_url:
+                for item in challenge.expose:
+                    host_port = item.get("host_port")
+                    if host_port is None:
+                        continue
+                    endpoint = {
+                        "type": item.get("protocol", "tcp"),
+                        "host": self.public_host,
+                        "port": host_port,
+                        "url": challenge.target_url,
+                    }
+                    ok, error = _endpoint_ready(endpoint)
+                    if not ok:
+                        logger.warning(
+                            f"Challenge {challenge.id} endpoint unhealthy: {error}",
+                            extra={"challenge_id": challenge.id, "error": error},
+                        )
+                        # Mark as error so the user knows the environment is broken
+                        challenge.status = ChallengeStatus.error
+                        challenge.error_message = f"Endpoint unreachable: {error}"
+                        self.events.record(
+                            "challenge_endpoint_unhealthy",
+                            "题目环境端口不可达",
+                            challenge_id=challenge.id,
+                            level="warning",
+                            data={"error": error, "target_url": challenge.target_url},
+                        )
+                        break
 
     def _is_compose_running(self, challenge: Challenge) -> bool:
         project = challenge.compose_project
@@ -721,11 +763,58 @@ class DropletManager:
             service = services.get(item["service"])
             if not service:
                 continue
-            host_port = _free_port()
-            service["ports"] = _replace_port(service.get("ports", []), int(item["container_port"]), host_port)
-            out.append({**item, "host_port": host_port})
+            # Let Docker pick the host port to eliminate the TOCTOU race.
+            service["ports"] = _replace_port(service.get("ports", []), int(item["container_port"]), 0)
+            out.append({**item, "host_port": 0})
         compose_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
         return out
+
+    def _resolve_ports(
+        self, project: str, exposed: list[dict[str, Any]], docker_env: dict[str, str]
+    ) -> list[dict[str, Any]]:
+        """Query Docker for the actual host ports it bound after `up -d`."""
+        resolved = []
+        for item in exposed:
+            service = item.get("service")
+            container_port = item.get("container_port")
+            if service is None or container_port is None:
+                resolved.append(item)
+                continue
+            actual = self._query_host_port(project, service, int(container_port), docker_env)
+            if actual is None:
+                raise RuntimeError(
+                    f"Could not resolve host port for {service}:{container_port} in project {project}"
+                )
+            resolved.append({**item, "host_port": actual})
+        return resolved
+
+    def _query_host_port(
+        self, project: str, service: str, container_port: int, docker_env: dict[str, str]
+    ) -> int | None:
+        """Run `docker compose port` and return the host port number."""
+        command = [
+            "docker", "compose", "-p", project,
+            "port", service, str(container_port),
+        ]
+        for attempt in range(3):
+            result = subprocess.run(
+                command,
+                env=docker_env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                line = result.stdout.strip()
+                # Output: "0.0.0.0:54321"
+                if ":" in line:
+                    try:
+                        return int(line.rsplit(":", 1)[1])
+                    except ValueError:
+                        pass
+            # Container may still be starting; back off briefly
+            time.sleep(0.3 * (attempt + 1))
+        return None
 
     def _infer_expose(self, compose_path: Path) -> list[dict[str, Any]]:
         data = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
@@ -749,8 +838,14 @@ class DropletManager:
 # Standalone helpers
 # ----------------------------------------------------------------------
 
-# [16] Bind to port 0 to let the kernel pick an ephemeral port. Note: TOCTOU race condition exists between bind() and actual use.
-# 绑定到端口 0 让内核选择临时端口。注意：bind() 和实际使用之间存在 TOCTOU 竞争条件。
+# [16] Use "0:container_port" in docker-compose.yml and let Docker pick the host port
+# directly.  This eliminates the TOCTOU race condition that existed when we
+# bound a socket ourselves, closed it, and then asked Docker to bind the same
+# port a moment later.
+#
+# After docker compose up we query the actual bound port with
+#   docker compose -p <project> port <service> <container_port>
+# which returns "0.0.0.0:<host_port>".
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("", 0))
