@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import time
 from pathlib import Path
 
 import pytest
@@ -88,8 +86,6 @@ def test_start_challenge_returns_existing_when_already_running(tmp_path, monkeyp
 
 
 def test_start_challenge_enforces_max_concurrent_limit(tmp_path, monkeypatch) -> None:
-    template = tmp_path / "template"
-
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
     manager.max_concurrent = 2
 
@@ -112,8 +108,6 @@ def test_start_challenge_enforces_max_concurrent_limit(tmp_path, monkeypatch) ->
 
 
 def test_start_challenge_counts_starting_towards_limit(tmp_path, monkeypatch) -> None:
-    template = tmp_path / "template"
-
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
     manager.max_concurrent = 2
 
@@ -228,8 +222,6 @@ def test_start_challenge_returns_existing_when_stopping(tmp_path, monkeypatch) -
 
 
 def test_stop_challenge_counts_towards_active_limit(tmp_path, monkeypatch) -> None:
-    template = tmp_path / "template"
-
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
     manager.max_concurrent = 2
 
@@ -250,8 +242,6 @@ def test_stop_challenge_counts_towards_active_limit(tmp_path, monkeypatch) -> No
 
 
 def test_stats_includes_starting_count(tmp_path) -> None:
-    template = tmp_path / "template"
-
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
 
     for i in range(3):
@@ -270,8 +260,6 @@ def test_stats_includes_starting_count(tmp_path) -> None:
 
 
 def test_start_all_collects_skipped_limit(tmp_path, monkeypatch) -> None:
-    template = tmp_path / "template"
-
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
     manager.max_concurrent = 1
 
@@ -286,3 +274,24 @@ def test_start_all_collects_skipped_limit(tmp_path, monkeypatch) -> None:
     assert result["started"] == ["demo_0"]
     assert result["skipped_limit"] == ["demo_1", "demo_2"]
     assert result["errors"] == {}
+
+
+def test_reset_challenge_respects_max_concurrent_limit_for_inactive_target(tmp_path, monkeypatch) -> None:
+    manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
+    manager.max_concurrent = 2
+
+    for i in range(3):
+        c = _make_challenge(tmp_path / f"template_{i}", f"demo_{i}")
+        manager.challenges[c.id] = c
+
+    manager.challenges["demo_0"].status = ChallengeStatus.running
+    manager.challenges["demo_1"].status = ChallengeStatus.starting
+
+    calls = []
+    monkeypatch.setattr(manager, "_do_reset_challenge", lambda cid: calls.append(cid))
+
+    with pytest.raises(RuntimeError, match="Maximum concurrent environments"):
+        manager.reset_challenge("demo_2")
+
+    assert calls == []
+    assert manager.challenges["demo_2"].status == ChallengeStatus.not_started

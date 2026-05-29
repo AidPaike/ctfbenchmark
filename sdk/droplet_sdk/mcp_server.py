@@ -69,7 +69,7 @@ def submit_answer(challenge_id: str, answer: str) -> dict:
 
 @mcp.tool()
 def view_hint(challenge_id: str) -> dict:
-    """Request a hint for a challenge. Each hint reduces score by 10%."""
+    """Request a hint for a challenge. First use reduces score by 10%."""
     with _client() as api:
         return api.view_hint(challenge_id)
 

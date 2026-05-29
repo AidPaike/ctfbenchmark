@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
-from typing import Generator
-
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Generator
 
-from sqlmodel import Field, Session, SQLModel, create_engine, select, UniqueConstraint
+from sqlmodel import Field, Session, SQLModel, UniqueConstraint, create_engine, select
 
 
 # [1] Resolve project root so the database is always anchored to the repo root,
@@ -63,8 +60,8 @@ def _ensure_sqlite_columns(engine) -> None:
                 connection.exec_driver_sql("ALTER TABLE events ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0")
 
 
-# [3] SQLModel table for audit events — mirrors the JSONL schema exactly
-# 审计事件 SQLModel 表 —— 与 JSONL 结构完全一致
+# [3] SQLModel table for audit events — API shape is compatible with the legacy JSONL schema
+# 审计事件 SQLModel 表 —— API 结构兼容旧版 JSONL 结构
 class Event(SQLModel, table=True):
     __tablename__ = "events"
 
@@ -95,8 +92,8 @@ class SystemLog(SQLModel, table=True):
     data: str = Field(default="{}")
 
 
-# [5] Challenge progress persistence — tagged by session so resets are logical, not physical
-# 题目进度持久化 —— 用 session 标签实现逻辑重置，数据物理保留
+# [5] Challenge progress persistence — legacy session_id stores the reset epoch
+# 题目进度持久化 —— 旧字段 session_id 存储重置代次，数据物理保留
 class ChallengeProgress(SQLModel, table=True):
     __tablename__ = "challenge_progress"
 
@@ -115,8 +112,8 @@ class ChallengeProgress(SQLModel, table=True):
     )
 
 
-# [6] Submission history — every answer attempt is preserved across resets
-# 提交历史 —— 每次答题尝试都会保留，即使重置也不会删除
+# [6] Submission history — every answer attempt is preserved across reset epochs
+# 提交历史 —— 每次答题尝试都会保留，即使切换重置代次也不会删除
 class Submission(SQLModel, table=True):
     __tablename__ = "submissions"
 
@@ -130,8 +127,8 @@ class Submission(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
 
 
-# [7] Key-value store for application-level state (e.g. current session id)
-# 应用级键值存储（如当前 session id）
+# [7] Key-value store for application-level state (e.g. reset epoch)
+# 应用级键值存储（如重置代次）
 class AppState(SQLModel, table=True):
     __tablename__ = "app_state"
 
@@ -145,13 +142,13 @@ def get_session() -> Generator[Session, None, None]:
         yield session
 
 
-# [8] Session helpers — resets increment the session id instead of deleting rows
-# Session 辅助函数 —— 重置时递增 session id，而不是删除数据行
+# [8] Reset-epoch helpers — global reset increments an epoch instead of deleting rows
+# 重置代次辅助函数 —— 全局重置时递增代次，而不是删除数据行
 _CURRENT_SESSION_CACHE: int | None = None
 
 
 def get_current_session_id() -> int:
-    """Return the active session id; creates one if missing."""
+    """Return the active reset epoch; creates one if missing."""
     global _CURRENT_SESSION_CACHE
     if _CURRENT_SESSION_CACHE is not None:
         return _CURRENT_SESSION_CACHE
@@ -169,7 +166,7 @@ def get_current_session_id() -> int:
 
 
 def increment_session_id() -> int:
-    """Increment the global session id and clear the local cache."""
+    """Increment the global reset epoch and clear the local cache."""
     global _CURRENT_SESSION_CACHE
     engine = get_engine()
     with Session(engine) as session:
@@ -189,7 +186,7 @@ def increment_session_id() -> int:
 
 
 def reset_session_cache() -> None:
-    """Clear the cached session id (useful in tests)."""
+    """Clear the cached reset epoch (useful in tests)."""
     global _CURRENT_SESSION_CACHE
     _CURRENT_SESSION_CACHE = None
 

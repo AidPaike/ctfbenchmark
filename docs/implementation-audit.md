@@ -7,13 +7,13 @@ Droplet 已经从旧原型收敛为单机黑盒题目环境平台。当前实现
 - 后端启动真实 Docker Compose 题目服务；
 - 前端展示题目、目标地址、提交记录和活动链；
 - SDK/CLI/MCP 提供同一套题目生命周期接口；
-- 事件日志通过 JSONL 落盘并可查询；
+- 事件、提交和进度通过 SQLite 持久化并可查询；
 - 题目模板不被污染，端口和代理只写入运行态副本。
 
 ## 做得对的地方
 
 - `DatasetLoader` 和 adapter 开始从 `manager.py` 中拆出，后续可以接入更多 benchmark。
-- `EventStore` 提供了统一的审计日志接口。
+- `EventStore` 提供了统一的 SQLite 审计日志接口。
 - `data/work/challenges/<challenge_id>/` 是明确的运行态目录。
 - `data/work/attempts/` 已作为旧目录自动清理。
 - 前端活动链不再使用前端模拟数据，而是读取后端事件。
@@ -22,7 +22,7 @@ Droplet 已经从旧原型收敛为单机黑盒题目环境平台。当前实现
 
 P0：
 
-- 持久化 Challenge 状态和事件索引。
+- 持久化运行中容器的可恢复 runtime 状态。
 - 给 Docker Compose 增加 CPU/内存限制和更细的失败诊断。
 - 为每个 dataset adapter 增加 discovery contract。
 

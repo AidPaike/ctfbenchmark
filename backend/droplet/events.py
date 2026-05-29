@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -108,7 +107,7 @@ class EventStore:
             ]
 
     def clear(self, *, challenge_id: str | None = None) -> dict[str, Any]:
-        """Hide visible events for the current session without deleting audit rows."""
+        """Hide visible events for the current reset epoch without deleting audit rows."""
         session_id = get_current_session_id()
         with Session(self._engine) as session:
             query = select(Event).where(Event.session_id == session_id, Event.archived == False)  # noqa: E712

@@ -5,8 +5,6 @@ from droplet.database import (
     Submission,
     get_current_session_id,
     get_engine,
-    init_db,
-    reset_session_cache,
 )
 from droplet.manager import DropletManager
 from droplet.models import Challenge, ChallengeStatus
@@ -115,14 +113,14 @@ def test_record_submission_creates_row(tmp_path) -> None:
         assert rows[1].score_after == 0.9
 
 
-def test_get_submissions_returns_current_session_only(tmp_path) -> None:
-    """get_submissions should only return rows for the active session."""
+def test_get_submissions_returns_current_reset_epoch_only(tmp_path) -> None:
+    """get_submissions should only return rows for the active reset epoch."""
     manager, challenge = _make_manager(tmp_path)
 
-    # Insert submission for current session
+    # Insert submission for current reset epoch
     manager._record_submission(challenge, "FLAG{a}", True, 1.0, 1.0)
 
-    # Insert submission for an old session (should not appear)
+    # Insert submission for an old reset epoch (should not appear)
     engine = get_engine()
     with Session(engine) as session:
         old = Submission(
@@ -141,8 +139,8 @@ def test_get_submissions_returns_current_session_only(tmp_path) -> None:
     assert results[0]["answer"] == "FLAG{a}"
 
 
-def test_clear_progress_resets_current_session(tmp_path) -> None:
-    """_clear_progress should reset the current session's progress without deleting the row."""
+def test_clear_progress_resets_current_epoch(tmp_path) -> None:
+    """_clear_progress should reset the current epoch's progress without deleting the row."""
     manager, challenge = _make_manager(tmp_path)
     challenge.solved = True
     challenge.score = 0.8
@@ -170,8 +168,8 @@ def test_clear_progress_resets_current_session(tmp_path) -> None:
         assert prog.score == 0.0
 
 
-def test_reset_all_increments_session_and_isolates_progress(tmp_path) -> None:
-    """reset_all_challenges should increment session_id so old progress is hidden."""
+def test_reset_all_increments_epoch_and_isolates_progress(tmp_path) -> None:
+    """reset_all_challenges should increment the reset epoch so old progress is hidden."""
     manager, challenge = _make_manager(tmp_path)
     challenge.solved = True
     challenge.score = 1.0
@@ -179,7 +177,7 @@ def test_reset_all_increments_session_and_isolates_progress(tmp_path) -> None:
 
     old_session = get_current_session_id()
     result = manager.reset_all_challenges()
-    new_session = result["new_session_id"]
+    new_session = result["reset_epoch"]
 
     assert new_session == old_session + 1
     assert challenge.solved is False

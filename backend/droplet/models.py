@@ -83,7 +83,7 @@ class Challenge(BaseModel):
             "difficulty": self.difficulty,
             "dataset_id": self.dataset_id,
             "tags": self.tags,
-            "hint": self.hint,
+            "has_hint": self.hint is not None,
             "judge_mode": self.judge_mode,
             "status": self.status.value,
             "target_url": self.target_url,

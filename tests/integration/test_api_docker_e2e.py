@@ -112,9 +112,17 @@ def test_api_can_start_challenge_record_submission_and_cleanup(droplet_server) -
         assert challenge_after["status"] == "running"
         assert challenge_after["submission_count"] == 1
 
-        _ok(client.post(f"/api/challenges/{task_id}/stop"))
+        stop_response = client.post(f"/api/challenges/{task_id}/stop")
+        assert stop_response.status_code == 202, stop_response.text
+        stopped = _wait_for_challenge_status(client, task_id, {"not_started", "error"})
+        assert stopped["status"] == "not_started"
 
-    assert not (work_root / "challenges" / task_id).exists()
+    work_dir = work_root / "challenges" / task_id
+    for _ in range(20):
+        if not work_dir.exists():
+            break
+        time.sleep(0.5)
+    assert not work_dir.exists()
 
 
 def _ok(response: httpx.Response) -> Any:
@@ -153,6 +161,21 @@ def _wait_for_target(base_url: str) -> None:
             last_error = str(exc)
         time.sleep(2)
     raise AssertionError(f"target did not become ready at {base_url}: {last_error}")
+
+
+def _wait_for_challenge_status(
+    client: httpx.Client,
+    challenge_id: str,
+    statuses: set[str],
+) -> dict[str, Any]:
+    deadline = time.monotonic() + TARGET_READY_TIMEOUT_SECONDS
+    last: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        last = _ok(client.get(f"/api/challenges/{challenge_id}"))
+        if last["status"] in statuses:
+            return last
+        time.sleep(2)
+    raise AssertionError(f"Challenge {challenge_id} did not reach {statuses}; last={last}")
 
 
 def _free_port() -> int:
