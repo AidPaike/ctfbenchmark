@@ -13,6 +13,11 @@ venv/
 # Work directories
 data/
 repos/
+logs/
+
+# Build artifacts
+droplet.egg-info/
+*.egg-info/
 
 # IDE
 .vscode/
