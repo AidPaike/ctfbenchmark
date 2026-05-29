@@ -26,3 +26,7 @@ droplet.egg-info/
 # OS
 .DS_Store
 Thumbs.db
+
+# Runtime PID files
+.droplet-backend.pid
+.droplet-frontend.pid

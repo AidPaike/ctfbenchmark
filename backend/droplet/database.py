@@ -12,11 +12,15 @@ from typing import Generator
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 
-# [1] SQLite file path; override via env var for tests
-# SQLite 文件路径；可通过环境变量覆盖以用于测试
-DATABASE_PATH = Path(os.getenv("DROPLET_DATABASE_PATH", "data/droplet.db"))
+# [1] Resolve project root so the database is always anchored to the repo root,
+#     regardless of which working directory Python is launched from.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# [2] SQLAlchemy engine with WAL mode for better concurrent read performance
+# [2] SQLite file path; override via env var for tests
+# SQLite 文件路径；可通过环境变量覆盖以用于测试
+DATABASE_PATH = Path(os.getenv("DROPLET_DATABASE_PATH", _PROJECT_ROOT / "data" / "droplet.db"))
+
+# [3] SQLAlchemy engine with WAL mode for better concurrent read performance
 # WAL 模式提升并发读取性能
 _engine = None
 _engine_path = None
@@ -24,7 +28,8 @@ _engine_path = None
 
 def get_engine():
     global _engine, _engine_path
-    current_path = Path(os.getenv("DROPLET_DATABASE_PATH", "data/droplet.db"))
+    raw = os.getenv("DROPLET_DATABASE_PATH")
+    current_path = Path(raw) if raw else _PROJECT_ROOT / "data" / "droplet.db"
     if _engine is None or _engine_path != current_path:
         _engine_path = current_path
         _engine_path.parent.mkdir(parents=True, exist_ok=True)
