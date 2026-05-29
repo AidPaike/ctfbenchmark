@@ -16,8 +16,16 @@ from typing import Any
 import yaml
 
 from droplet.datasets import DatasetLoader, read_env_flag
+from droplet.database import (
+    ChallengeProgress,
+    Submission,
+    get_current_session_id,
+    get_engine,
+    increment_session_id,
+)
 from droplet.events import EventStore
 from droplet.models import Challenge, ChallengeStatus, now
+from sqlmodel import Session, desc, select
 
 logger = logging.getLogger("droplet.manager")
 
@@ -98,6 +106,8 @@ class DropletManager:
             infer_expose=self._infer_expose,
         )
         logger.info(f"Loaded {len(self.challenges)} challenges")
+        self._restore_progress()
+        logger.info(f"Restored progress for {sum(1 for c in self.challenges.values() if c.solved)} solved challenges")
         self.events.record(
             "challenges_loaded",
             "题目元数据已加载",
@@ -337,7 +347,155 @@ class DropletManager:
     def _do_reset_challenge(self, challenge_id: str) -> None:
         challenge = self.get_challenge(challenge_id)
         self._stop_compose(challenge)
+        self._clear_progress(challenge_id)
         self._do_start_challenge(challenge_id)
+
+    def reset_all_challenges(self) -> dict[str, Any]:
+        """Increment the global session id so all progress appears reset."""
+        new_session = increment_session_id()
+        for c in self.challenges.values():
+            c.solved = False
+            c.hint_viewed = False
+            c.hint_penalty = 0.0
+            c.submission_count = 0
+            c.score = 0.0
+            if c.status == ChallengeStatus.solved:
+                c.status = ChallengeStatus.not_started
+        logger.info(f"All challenges reset to new session {new_session}")
+        self.events.record(
+            "challenges_reset_all",
+            "所有题目已重置",
+            data={"new_session_id": new_session},
+        )
+        return {
+            "reset": True,
+            "new_session_id": new_session,
+            "total": len(self.challenges),
+        }
+
+    def get_submissions(self, challenge_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        """Return submission history for the current session."""
+        session_id = get_current_session_id()
+        engine = get_engine()
+        with Session(engine) as session:
+            stmt = (
+                select(Submission)
+                .where(
+                    Submission.challenge_id == challenge_id,
+                    Submission.session_id == session_id,
+                )
+                .order_by(desc(Submission.created_at))
+                .limit(limit)
+            )
+            results = []
+            for sub in session.exec(stmt):
+                results.append({
+                    "id": sub.id,
+                    "challenge_id": sub.challenge_id,
+                    "answer": sub.answer,
+                    "correct": sub.correct,
+                    "score_before": sub.score_before,
+                    "score_after": sub.score_after,
+                    "created_at": sub.created_at.isoformat() if sub.created_at else None,
+                })
+            return results
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+
+    def _persist_progress(self, challenge: Challenge) -> None:
+        """Write challenge submission state to DB for the current session."""
+        session_id = get_current_session_id()
+        engine = get_engine()
+        with Session(engine) as session:
+            stmt = select(ChallengeProgress).where(
+                ChallengeProgress.challenge_id == challenge.id,
+                ChallengeProgress.session_id == session_id,
+            )
+            prog = session.exec(stmt).first()
+            if prog is None:
+                prog = ChallengeProgress(
+                    challenge_id=challenge.id,
+                    session_id=session_id,
+                )
+                session.add(prog)
+            prog.solved = challenge.solved
+            prog.hint_viewed = challenge.hint_viewed
+            prog.hint_penalty = challenge.hint_penalty
+            prog.submission_count = challenge.submission_count
+            prog.score = challenge.score
+            prog.updated_at = now()
+            session.commit()
+
+    def _record_submission(
+        self,
+        challenge: Challenge,
+        answer: str,
+        correct: bool,
+        score_before: float,
+        score_after: float,
+    ) -> None:
+        session_id = get_current_session_id()
+        engine = get_engine()
+        with Session(engine) as session:
+            sub = Submission(
+                challenge_id=challenge.id,
+                session_id=session_id,
+                answer=answer,
+                correct=correct,
+                score_before=score_before,
+                score_after=score_after,
+            )
+            session.add(sub)
+            session.commit()
+
+    def _restore_progress(self) -> None:
+        """Restore submission state from DB after loading dataset."""
+        session_id = get_current_session_id()
+        engine = get_engine()
+        with Session(engine) as session:
+            stmt = select(ChallengeProgress).where(
+                ChallengeProgress.session_id == session_id
+            )
+            for prog in session.exec(stmt):
+                if prog.challenge_id not in self.challenges:
+                    continue
+                c = self.challenges[prog.challenge_id]
+                c.solved = prog.solved
+                c.hint_viewed = prog.hint_viewed
+                c.hint_penalty = prog.hint_penalty
+                c.submission_count = prog.submission_count
+                c.score = prog.score
+                if prog.solved:
+                    c.status = ChallengeStatus.solved
+
+    def _clear_progress(self, challenge_id: str) -> None:
+        """Reset submission state for a single challenge in the current session."""
+        session_id = get_current_session_id()
+        engine = get_engine()
+        with Session(engine) as session:
+            stmt = select(ChallengeProgress).where(
+                ChallengeProgress.challenge_id == challenge_id,
+                ChallengeProgress.session_id == session_id,
+            )
+            prog = session.exec(stmt).first()
+            if prog is not None:
+                prog.solved = False
+                prog.hint_viewed = False
+                prog.hint_penalty = 0.0
+                prog.submission_count = 0
+                prog.score = 0.0
+                prog.updated_at = now()
+                session.add(prog)
+                session.commit()
+        if challenge_id in self.challenges:
+            c = self.challenges[challenge_id]
+            c.solved = False
+            c.hint_viewed = False
+            c.hint_penalty = 0.0
+            c.submission_count = 0
+            c.score = 0.0
 
     # [9] Auto-judge submission by comparing the answer against the expected flag
     # 通过将答案与期望的 Flag 比较来自动判题
@@ -367,6 +525,9 @@ class DropletManager:
                 extra={"challenge_id": challenge_id},
             )
 
+        self._persist_progress(challenge)
+        self._record_submission(challenge, answer, correct, score_before, score_after)
+
         self.events.record(
             "submission_judged",
             "提交已判题",
@@ -395,6 +556,7 @@ class DropletManager:
             raise ValueError("Hint not available")
         challenge.hint_viewed = True
         challenge.hint_penalty -= 0.1
+        self._persist_progress(challenge)
         self.events.record(
             "hint_viewed",
             "查看题目提示",

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Generator
 
-from sqlmodel import Field, Session, SQLModel, create_engine, select
+from sqlmodel import Field, Session, SQLModel, create_engine, select, UniqueConstraint
 
 
 # [1] Resolve project root so the database is always anchored to the repo root,
@@ -82,12 +82,106 @@ class SystemLog(SQLModel, table=True):
     data: str = Field(default="{}")
 
 
+# [5] Challenge progress persistence — tagged by session so resets are logical, not physical
+# 题目进度持久化 —— 用 session 标签实现逻辑重置，数据物理保留
+class ChallengeProgress(SQLModel, table=True):
+    __tablename__ = "challenge_progress"
+
+    id: int | None = Field(default=None, primary_key=True)
+    challenge_id: str = Field(max_length=64, index=True)
+    session_id: int = Field(default=1, index=True)
+    solved: bool = Field(default=False)
+    hint_viewed: bool = Field(default=False)
+    hint_penalty: float = Field(default=0.0)
+    submission_count: int = Field(default=0)
+    score: float = Field(default=0.0)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+
+    __table_args__ = (
+        UniqueConstraint("challenge_id", "session_id", name="uq_progress_challenge_session"),
+    )
+
+
+# [6] Submission history — every answer attempt is preserved across resets
+# 提交历史 —— 每次答题尝试都会保留，即使重置也不会删除
+class Submission(SQLModel, table=True):
+    __tablename__ = "submissions"
+
+    id: int | None = Field(default=None, primary_key=True)
+    challenge_id: str = Field(max_length=64, index=True)
+    session_id: int = Field(default=1, index=True)
+    answer: str
+    correct: bool
+    score_before: float = Field(default=0.0)
+    score_after: float = Field(default=0.0)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+
+
+# [7] Key-value store for application-level state (e.g. current session id)
+# 应用级键值存储（如当前 session id）
+class AppState(SQLModel, table=True):
+    __tablename__ = "app_state"
+
+    key: str = Field(primary_key=True, max_length=64)
+    value_int: int | None = Field(default=None)
+    value_str: str | None = Field(default=None, max_length=256)
+
+
 def get_session() -> Generator[Session, None, None]:
     with Session(get_engine()) as session:
         yield session
 
 
-# [4] Optional migration: copy historical JSONL events into SQLite on first init
+# [8] Session helpers — resets increment the session id instead of deleting rows
+# Session 辅助函数 —— 重置时递增 session id，而不是删除数据行
+_CURRENT_SESSION_CACHE: int | None = None
+
+
+def get_current_session_id() -> int:
+    """Return the active session id; creates one if missing."""
+    global _CURRENT_SESSION_CACHE
+    if _CURRENT_SESSION_CACHE is not None:
+        return _CURRENT_SESSION_CACHE
+    engine = get_engine()
+    with Session(engine) as session:
+        state = session.get(AppState, "current_session_id")
+        if state is None:
+            state = AppState(key="current_session_id", value_int=1)
+            session.add(state)
+            session.commit()
+            _CURRENT_SESSION_CACHE = 1
+            return 1
+        _CURRENT_SESSION_CACHE = state.value_int or 1
+        return _CURRENT_SESSION_CACHE
+
+
+def increment_session_id() -> int:
+    """Increment the global session id and clear the local cache."""
+    global _CURRENT_SESSION_CACHE
+    engine = get_engine()
+    with Session(engine) as session:
+        state = session.get(AppState, "current_session_id")
+        if state is None:
+            state = AppState(key="current_session_id", value_int=2)
+            session.add(state)
+            session.commit()
+            _CURRENT_SESSION_CACHE = 2
+            return 2
+        current = state.value_int or 1
+        state.value_int = current + 1
+        session.add(state)
+        session.commit()
+        _CURRENT_SESSION_CACHE = current + 1
+        return _CURRENT_SESSION_CACHE
+
+
+def reset_session_cache() -> None:
+    """Clear the cached session id (useful in tests)."""
+    global _CURRENT_SESSION_CACHE
+    _CURRENT_SESSION_CACHE = None
+
+
+# [9] Optional migration: copy historical JSONL events into SQLite on first init
 # 可选迁移：首次初始化时将历史 JSONL 事件复制到 SQLite
 
 def migrate_jsonl_to_sqlite(jsonl_path: Path) -> int:
