@@ -4,6 +4,7 @@ import argparse
 import json
 import shutil
 import sys
+import time
 from typing import Any
 
 import httpx
@@ -62,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     hint = subparsers.add_parser("hint", help="Get a challenge hint")
     hint.add_argument("challenge_id")
 
-    stats = subparsers.add_parser("stats", help="Get overall statistics")
+    subparsers.add_parser("stats", help="Get overall statistics")
 
     subparsers.add_parser("compat-challenges", help="List Tencent-compatible challenges")
     compat_hint = subparsers.add_parser("compat-hint", help="Get a Tencent-compatible hint")
@@ -163,7 +164,7 @@ def _preflight(client: DropletClient, challenge_ids: list[str] | None, no_start:
                 updated = client.start_challenge(challenge_id)
                 start_result["started"].append(challenge_id)
                 print(
-                    f"[{index}/{total}] {challenge_id} 启动完成: {updated.get('target_url')}",
+                    f"[{index}/{total}] {challenge_id} 启动请求已发送: {updated.get('status')}",
                     file=sys.stderr,
                     flush=True,
                 )
@@ -171,7 +172,11 @@ def _preflight(client: DropletClient, challenge_ids: list[str] | None, no_start:
                 start_result["errors"][challenge_id] = str(exc)
                 print(f"[{index}/{total}] {challenge_id} 启动失败: {exc}", file=sys.stderr, flush=True)
 
-    challenges = client.list_challenges()
+    challenges = _wait_for_preflight_ready(
+        client,
+        selected_ids,
+        timeout=getattr(client, "timeout", 600.0) if not no_start else 0,
+    )
     selected = set(selected_ids)
     challenges = [challenge for challenge in challenges if challenge["id"] in selected]
 
@@ -208,6 +213,31 @@ def _preflight(client: DropletClient, challenge_ids: list[str] | None, no_start:
     }
     _print(payload)
     return 0 if payload["ok"] else 1
+
+
+def _wait_for_preflight_ready(
+    client: DropletClient,
+    selected_ids: list[str],
+    *,
+    timeout: float,
+) -> list[dict[str, Any]]:
+    selected = set(selected_ids)
+    deadline = time.monotonic() + max(timeout, 0)
+    challenges = client.list_challenges()
+    while timeout > 0 and time.monotonic() < deadline:
+        selected_challenges = [challenge for challenge in challenges if challenge.get("id") in selected]
+        pending = [
+            challenge
+            for challenge in selected_challenges
+            if challenge.get("status") in {"starting", "stopping"}
+        ]
+        if not pending:
+            return challenges
+        pending_ids = ", ".join(str(challenge.get("id")) for challenge in pending)
+        print(f"等待题目就绪: {pending_ids}", file=sys.stderr, flush=True)
+        time.sleep(2)
+        challenges = client.list_challenges()
+    return challenges
 
 
 def _print(payload: Any) -> int:

@@ -235,7 +235,8 @@ def reset_all_challenges(_: None = Depends(require_auth)) -> dict:
 @app.post("/api/challenges/{challenge_id}/reset")
 def reset_challenge(challenge_id: str, _: None = Depends(require_auth)) -> dict:
     try:
-        return manager.reset_challenge(challenge_id).public()
+        result = manager.reset_challenge(challenge_id).public()
+        return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=result)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

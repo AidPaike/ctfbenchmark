@@ -332,6 +332,11 @@ class DropletManager:
         with self._start_lock:
             if challenge.status in (ChallengeStatus.starting, ChallengeStatus.stopping):
                 return challenge
+            if challenge.status != ChallengeStatus.running and self._count_active_challenges() >= self.max_concurrent:
+                raise RuntimeError(
+                    f"Maximum concurrent environments ({self.max_concurrent}) reached. "
+                    f"Please stop another environment first."
+                )
             challenge.status = ChallengeStatus.starting
             challenge.error_message = None
 
@@ -350,8 +355,8 @@ class DropletManager:
         self._do_start_challenge(challenge_id)
 
     def reset_all_challenges(self) -> dict[str, Any]:
-        """Increment the global session id so all progress appears reset."""
-        new_session = increment_session_id()
+        """Increment the reset epoch so current progress appears reset."""
+        reset_epoch = increment_session_id()
         for c in self.challenges.values():
             c.solved = False
             c.hint_viewed = False
@@ -360,20 +365,21 @@ class DropletManager:
             c.score = 0.0
             if c.status == ChallengeStatus.solved:
                 c.status = ChallengeStatus.not_started
-        logger.info(f"All challenges reset to new session {new_session}")
+        logger.info(f"All challenges reset to epoch {reset_epoch}")
         self.events.record(
             "challenges_reset_all",
             "所有题目已重置",
-            data={"new_session_id": new_session},
+            data={"reset_epoch": reset_epoch},
         )
         return {
             "reset": True,
-            "new_session_id": new_session,
+            "reset_epoch": reset_epoch,
+            "new_session_id": reset_epoch,
             "total": len(self.challenges),
         }
 
     def get_submissions(self, challenge_id: str, limit: int = 100) -> list[dict[str, Any]]:
-        """Return submission history for the current session."""
+        """Return submission history for the current reset epoch."""
         session_id = get_current_session_id()
         engine = get_engine()
         with Session(engine) as session:
@@ -404,7 +410,7 @@ class DropletManager:
     # ------------------------------------------------------------------
 
     def _persist_progress(self, challenge: Challenge) -> None:
-        """Write challenge submission state to DB for the current session."""
+        """Write challenge submission state to DB for the current reset epoch."""
         session_id = get_current_session_id()
         engine = get_engine()
         with Session(engine) as session:
@@ -470,7 +476,7 @@ class DropletManager:
                     c.status = ChallengeStatus.solved
 
     def _clear_progress(self, challenge_id: str) -> None:
-        """Reset submission state for a single challenge in the current session."""
+        """Reset submission state for a single challenge in the current reset epoch."""
         session_id = get_current_session_id()
         engine = get_engine()
         with Session(engine) as session:
@@ -538,19 +544,22 @@ class DropletManager:
         challenge = self.get_challenge(challenge_id)
         if not challenge.hint:
             raise ValueError("Hint not available")
+        first_use = not challenge.hint_viewed
+        penalty = -0.1 if first_use else 0.0
         challenge.hint_viewed = True
-        challenge.hint_penalty -= 0.1
+        challenge.hint_penalty += penalty
         self._persist_progress(challenge)
         self.events.record(
             "hint_viewed",
             "查看题目提示",
             challenge_id=challenge.id,
-            data={"penalty": -0.1, "hint_penalty": challenge.hint_penalty},
+            data={"penalty": penalty, "hint_penalty": challenge.hint_penalty, "first_use": first_use},
         )
         return {
             "hint_id": "hint-1",
             "content": challenge.hint,
-            "penalty": -0.1,
+            "penalty": penalty,
+            "first_use": first_use,
             "hint_penalty": challenge.hint_penalty,
         }
 
