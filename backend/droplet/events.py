@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlmodel import Session, desc, select
 
-from droplet.database import Event, get_engine
+from droplet.database import Event, get_current_session_id, get_engine
 
 
 # [1] Redact sensitive values so audit logs never leak flags or tokens
@@ -52,6 +52,7 @@ class EventStore:
         level: str = "info",
         data: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        session_id = get_current_session_id()
         event = {
             "id": f"evt_{uuid.uuid4().hex[:12]}",
             "timestamp": utc_now().isoformat(),
@@ -60,6 +61,7 @@ class EventStore:
             "message": message,
             "challenge_id": challenge_id,
             "data": _sanitize(data or {}),
+            "session_id": session_id,
         }
         db_event = Event(
             id=event["id"],
@@ -69,6 +71,7 @@ class EventStore:
             message=event["message"],
             challenge_id=event["challenge_id"],
             data=json.dumps(event["data"], ensure_ascii=False, default=str),
+            session_id=session_id,
         )
         with Session(self._engine) as session:
             session.add(db_event)
@@ -79,8 +82,9 @@ class EventStore:
     # list() 从 SQLite 查询，支持可选的题目过滤和数量限制
     def list(self, *, challenge_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 1000))
+        session_id = get_current_session_id()
         with Session(self._engine) as session:
-            query = select(Event).order_by(desc(Event.timestamp))
+            query = select(Event).where(Event.session_id == session_id).order_by(desc(Event.timestamp))
             if challenge_id:
                 query = query.where(Event.challenge_id == challenge_id)
             query = query.limit(limit)
