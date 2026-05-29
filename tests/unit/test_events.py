@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import json
 from pathlib import Path
 
 from droplet.events import EventStore
@@ -72,17 +70,17 @@ def test_event_store_list_without_challenge_id_returns_all(tmp_path: Path) -> No
     assert len(events) == 2
 
 
-def test_event_store_isolates_by_session_id(tmp_path: Path) -> None:
-    """Events from a previous session should not appear after reset."""
-    from droplet.database import get_current_session_id, increment_session_id
+def test_event_store_isolates_by_reset_epoch(tmp_path: Path) -> None:
+    """Events from a previous reset epoch should not appear after reset."""
+    from droplet.database import increment_session_id
 
     store = EventStore(tmp_path / "events.jsonl")
     store.record("challenge_started", "old session event", challenge_id="test")
 
-    # Verify event is visible in current session
+    # Verify event is visible in current reset epoch
     assert len(store.list(challenge_id="test")) == 1
 
-    # Simulate reset-all by incrementing session
+    # Simulate reset-all by incrementing reset epoch
     increment_session_id()
 
     # Old event should no longer be visible

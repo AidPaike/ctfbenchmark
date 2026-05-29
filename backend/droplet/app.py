@@ -54,7 +54,7 @@ def _prestart_ids() -> list[str] | None:
     return [item.strip().lower() for item in raw.split(",") if item.strip()]
 
 
-app = FastAPI(title="Droplet", version="0.5.0")
+app = FastAPI(title="Droplet", version="0.5.1")
 
 # [4] CORS restricted to the frontend origin only; not open to arbitrary domains
 # CORS 仅限前端来源；不对任意域名开放
@@ -235,7 +235,8 @@ def reset_all_challenges(_: None = Depends(require_auth)) -> dict:
 @app.post("/api/challenges/{challenge_id}/reset")
 def reset_challenge(challenge_id: str, _: None = Depends(require_auth)) -> dict:
     try:
-        return manager.reset_challenge(challenge_id).public()
+        result = manager.reset_challenge(challenge_id).public()
+        return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=result)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

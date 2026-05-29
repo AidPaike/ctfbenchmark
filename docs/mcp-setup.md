@@ -1,6 +1,6 @@
 # Droplet MCP 接入说明
 
-Droplet 当前是单机黑盒评测平台：平台负责启动题目服务、返回目标端口、记录 Flag 提交；外部 Agent 使用自己的工具链做题。当前 XBOW demo 不读取题目 `.env` 或源码判题，提交响应中的 `judged: false` 表示没有配置平台侧判题器。当前版本没有 session/attempt 概念。
+Droplet 当前是单机黑盒评测平台：平台负责启动题目服务、返回目标端口、记录 Flag 提交；外部 Agent 使用自己的工具链做题。当前 XBOW demo 不读取题目 `.env` 或源码判题，提交响应中的 `judged: false` 表示没有配置平台侧判题器。当前版本没有多用户 session，也没有同题多副本 attempt；全局重置只使用内部 reset epoch 隐藏旧进度。
 
 ## 安装
 
@@ -35,11 +35,11 @@ Claude Code / Cursor / Cline 均可使用类似配置：
 | `list_challenges` | 查看所有题目、状态和目标地址 |
 | `start_all_challenges` | 预启动全部或指定题目环境 |
 | `stop_all_challenges` | 停止全部运行中的题目环境 |
-| `start_challenge` | 启动单道题目环境，返回 `target_url` |
+| `start_challenge` | 异步启动单道题目环境，随后轮询题目状态获取 `target_url` |
 | `stop_challenge` | 停止单道题目环境 |
 | `reset_challenge` | 重置单道题目环境 |
 | `submit_answer` | 记录 Agent 提交的 Flag |
-| `view_hint` | 查看提示，扣 0.1 分 |
+| `view_hint` | 查看提示，首次查看扣 0.1 分 |
 | `get_stats` | 查看整体统计 |
 | `list_events` | 查看平台可见事件日志 |
 | `report_event` | Agent 主动上报一条可审计事件 |
