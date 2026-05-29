@@ -5,6 +5,11 @@ __pycache__/
 .venv/
 venv/
 
+# Agent / dev tooling
+.agents/
+.claude/
+.pytest_cache/
+
 # Work directories
 data/
 repos/
