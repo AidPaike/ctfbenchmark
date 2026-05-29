@@ -39,7 +39,7 @@ type Challenge = {
   difficulty: string;
   dataset_id: string;
   tags: string[];
-  hint: string | null;
+  has_hint: boolean;
   status: string;
   target_url: string | null;
   ports: number[];
@@ -225,7 +225,7 @@ function App() {
       {showResetConfirm && (
         <ConfirmDialog
           title="重置全部题目"
-          message="这会切换到新的评测会话，隐藏当前进度和提交历史视图。正在运行的题目环境不会被强行删除。"
+          message="这会进入新的进度代次，隐藏当前进度和提交历史视图。正在运行的题目环境不会被强行删除。"
           confirmLabel="确定重置"
           busy={busy}
           onConfirm={() => runAction(async () => { await api("/api/challenges/reset-all", { method: "POST" }); setShowResetConfirm(false); })}
@@ -304,7 +304,7 @@ function App() {
                   {selected.tags.map((tag) => (
                     <span key={tag}>{tag}</span>
                   ))}
-                  {selected.hint && (
+                  {selected.has_hint && (
                     <button className="hintChip" onClick={() => runAction(async () => { const r = await api<{ content: string }>(`/api/challenges/${selected.id}/hint`, { method: "POST" }); setHintContent(r.content); })} disabled={busy}>
                       <Lightbulb size={13} />
                       提示 {selected.hint_viewed ? "(已使用)" : "-0.1"}

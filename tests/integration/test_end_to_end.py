@@ -69,10 +69,12 @@ class TestChallengeLifecycle:
         challenge_id = challenge["id"]
         print(f"\n[test] Selected challenge: {challenge_id}")
 
-        # 2. Start challenge — this triggers Docker Compose up
+        # 2. Start challenge — this triggers Docker Compose up asynchronously
         resp = api.post(f"/api/challenges/{challenge_id}/start")
         resp.raise_for_status()
         challenge = resp.json()
+        assert challenge["status"] in {"starting", "running"}
+        challenge = _wait_for_challenge_status(api, challenge_id, {"running", "error"})
         assert challenge["status"] == "running"
         assert challenge["target_url"] is not None
         print(f"[test] Challenge started: {challenge['target_url']}")
@@ -120,12 +122,16 @@ class TestChallengeLifecycle:
         resp = api.post(f"/api/challenges/{challenge_id}/start")
         resp.raise_for_status()
         challenge = resp.json()
+        assert challenge["status"] in {"starting", "running"}
+        challenge = _wait_for_challenge_status(api, challenge_id, {"running", "error"})
         assert challenge["status"] == "running"
 
         # Stop it
         resp = api.post(f"/api/challenges/{challenge_id}/stop")
         resp.raise_for_status()
         challenge = resp.json()
+        assert challenge["status"] in {"stopping", "not_started"}
+        challenge = _wait_for_challenge_status(api, challenge_id, {"not_started", "error"})
         assert challenge["status"] == "not_started"
 
         # Verify work dir is gone (give a moment for cleanup)
@@ -146,14 +152,34 @@ class TestChallengeLifecycle:
         # Start, then reset
         resp = api.post(f"/api/challenges/{challenge_id}/start")
         resp.raise_for_status()
-        original_url = resp.json()["target_url"]
+        _wait_for_challenge_status(api, challenge_id, {"running", "error"})
 
         resp = api.post(f"/api/challenges/{challenge_id}/reset")
         resp.raise_for_status()
         challenge = resp.json()
+        assert challenge["status"] in {"starting", "running"}
+        challenge = _wait_for_challenge_status(api, challenge_id, {"running", "error"})
         assert challenge["status"] == "running"
         assert challenge["target_url"] is not None
         print(f"[test] Reset successful, new URL: {challenge['target_url']}")
 
         # Cleanup
         api.post(f"/api/challenges/{challenge_id}/stop")
+
+
+def _wait_for_challenge_status(
+    api: httpx.Client,
+    challenge_id: str,
+    statuses: set[str],
+    timeout: float = 300.0,
+) -> dict:
+    deadline = time.monotonic() + timeout
+    last = None
+    while time.monotonic() < deadline:
+        resp = api.get("/api/challenges")
+        resp.raise_for_status()
+        last = next(c for c in resp.json() if c["id"] == challenge_id)
+        if last["status"] in statuses:
+            return last
+        time.sleep(2)
+    raise AssertionError(f"Challenge {challenge_id} did not reach {statuses}; last={last}")

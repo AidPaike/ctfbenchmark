@@ -4,6 +4,8 @@ Droplet 是一个用于评测自动化渗透测试 Agent 的黑盒 CTF Benchmark
 
 当前 XBOW 题目遵循原题机制：Docker 启动后题目自己部署数据库和 flag。Droplet 不读取 `.env`、源码或数据库中的真实 flag，也不会为了判题去扫描题目文件。除非后续某个数据集显式配置 checker / judge adapter，否则提交接口只记录提交，返回 `judged: false`。
 
+当前版本是单用户平台：没有多用户隔离，也没有同一道题的多副本 attempt。全局“重置进度”内部使用 reset epoch 隐藏旧进度和旧活动链，但这不是对外的用户 session 模型。
+
 当前 demo 内置 5 道 XBOW 题目：
 
 - 数据集目录：`datasets/demo-xbow`
@@ -99,17 +101,23 @@ curl --noproxy 127.0.0.1 -s http://127.0.0.1:1349/api/health
 这个命令会：
 
 - 调用后端的 `POST /api/challenges/start-all`
-- 启动所有题目的 Docker Compose 服务
+- 在并发上限内启动题目的 Docker Compose 服务
 - 检查每道题是否为 `running`
 - 检查每道题是否有端口
 - 有任何题失败时返回非 0
 
-成功时会看到：
+默认最多同时运行 2 个题目环境。如果你要一次性预启动 5 道 demo 题，需要在启动后端前设置：
+
+```bash
+DROPLET_PRESTART_CHALLENGES=0 DROPLET_MAX_CONCURRENT_ENVIRONMENTS=5 ./scripts/dev/dev-backend.sh
+```
+
+当被检查的题目数量不超过并发上限时，成功输出类似：
 
 ```json
 {
   "ok": true,
-  "ready_count": 5,
+  "ready_count": 2,
   "failed_count": 0
 }
 ```
@@ -366,13 +374,13 @@ data/work/challenges/xben-001-24/
 
 停止题目后，运行态目录会被清理。旧版 `data/work/attempts/` 会在后端启动时自动删除。
 
-平台事件日志写入：
+平台状态和事件写入 SQLite：
 
 ```text
-logs/droplet-events.jsonl
+data/droplet.db
 ```
 
-前端右侧“LLM / Agent 活动链”读取这个结构化事件日志。外部黑盒 Agent 的内部 LLM 轨迹不会被平台自动捕获；如果需要展示关键步骤，Agent 可以调用 `report-event` 或 `POST /api/challenges/{id}/events` 主动上报摘要。
+`logs/droplet-events.jsonl` 只是旧版事件日志的迁移来源，新事件不再写入 JSONL。前端右侧“LLM / Agent 活动链”通过 API 读取 SQLite 中的结构化事件。外部黑盒 Agent 的内部 LLM 轨迹不会被平台自动捕获；如果需要展示关键步骤，Agent 可以调用 `report-event` 或 `POST /api/challenges/{id}/events` 主动上报摘要。
 
 ## 12. 新题预处理
 

@@ -83,7 +83,7 @@ class DropletClient:
         return self._request("POST", f"/api/challenges/{challenge_id}/submit", json={"answer": answer})
 
     def view_hint(self, challenge_id: str) -> dict[str, Any]:
-        """Request a hint for a challenge. Each hint reduces score by 10%."""
+        """Request a hint for a challenge. First use reduces score by 10%."""
         return self._request("POST", f"/api/challenges/{challenge_id}/hint")
 
     def stats(self) -> dict[str, Any]:

@@ -83,6 +83,8 @@ def test_challenges_are_loaded_without_old_runtime_model(api_contract) -> None:
     assert challenges[0]["status"] == "not_started"
     assert challenges[0]["task_type"] == "web_ctf_online"
     assert "dataset_id" in challenges[0]
+    assert challenges[0]["has_hint"] is True
+    assert "hint" not in challenges[0]
     assert "expected_flag" not in challenges[0]
 
 
@@ -136,6 +138,54 @@ def test_submit_records_answer_without_reading_or_judging_flag(api_contract) -> 
     assert stats["total_challenges"] == 1
     assert stats["solved"] == 0
     assert stats["overall_score"] == 0.0
+
+
+def test_hint_content_requires_hint_endpoint_and_records_penalty(api_contract) -> None:
+    client, _manager = api_contract
+
+    listed = client.get("/api/challenges", headers=AUTH).json()[0]
+    assert listed["has_hint"] is True
+    assert "hint" not in listed
+    assert listed["hint_viewed"] is False
+
+    hint = client.post("/api/challenges/contract-001/hint", headers=AUTH)
+
+    assert hint.status_code == 200
+    assert hint.json()["content"] == "try the obvious ID"
+    assert hint.json()["first_use"] is True
+    assert hint.json()["hint_penalty"] == -0.1
+
+    updated = client.get("/api/challenges", headers=AUTH).json()[0]
+    assert updated["hint_viewed"] is True
+    assert updated["hint_penalty"] == -0.1
+
+    repeated = client.post("/api/challenges/contract-001/hint", headers=AUTH)
+    assert repeated.status_code == 200
+    assert repeated.json()["first_use"] is False
+    assert repeated.json()["penalty"] == 0.0
+    assert repeated.json()["hint_penalty"] == -0.1
+
+
+def test_reset_endpoint_is_async_and_clears_current_progress(api_contract) -> None:
+    client, _manager = api_contract
+    client.post("/api/challenges/contract-001/start", headers=AUTH).raise_for_status()
+    _wait_for_status(client, "running")
+    client.post("/api/challenges/contract-001/hint", headers=AUTH).raise_for_status()
+    client.post(
+        "/api/challenges/contract-001/submit",
+        headers=AUTH,
+        json={"answer": "flag{recorded}"},
+    ).raise_for_status()
+
+    reset = client.post("/api/challenges/contract-001/reset", headers=AUTH)
+
+    assert reset.status_code == 202
+    assert reset.json()["status"] == "starting"
+    challenge = _wait_for_status(client, "running")
+    assert challenge["submission_count"] == 0
+    assert challenge["hint_viewed"] is False
+    assert challenge["hint_penalty"] == 0.0
+    assert challenge["target_url"] == "http://127.0.0.1/contract-001"
 
 
 def test_tencent_compat_api_returns_running_ports_and_accepts_answers(api_contract) -> None:
