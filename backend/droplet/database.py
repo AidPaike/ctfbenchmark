@@ -64,6 +64,7 @@ class Event(SQLModel, table=True):
     message: str
     challenge_id: str | None = Field(default=None, max_length=64, index=True)
     data: str = Field(default="{}")
+    session_id: int = Field(default=1, index=True)
 
 
 # [4] System log table for structured application logging

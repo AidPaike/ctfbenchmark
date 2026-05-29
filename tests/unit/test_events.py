@@ -58,3 +58,25 @@ def test_event_store_list_without_challenge_id_returns_all(tmp_path: Path) -> No
     events = store.list(limit=10)
 
     assert len(events) == 2
+
+
+def test_event_store_isolates_by_session_id(tmp_path: Path) -> None:
+    """Events from a previous session should not appear after reset."""
+    from droplet.database import get_current_session_id, increment_session_id
+
+    store = EventStore(tmp_path / "events.jsonl")
+    store.record("challenge_started", "old session event", challenge_id="test")
+
+    # Verify event is visible in current session
+    assert len(store.list(challenge_id="test")) == 1
+
+    # Simulate reset-all by incrementing session
+    increment_session_id()
+
+    # Old event should no longer be visible
+    assert len(store.list(challenge_id="test")) == 0
+
+    # New events go into the new session
+    store.record("challenge_started", "new session event", challenge_id="test")
+    assert len(store.list(challenge_id="test")) == 1
+    assert store.list(challenge_id="test")[0]["message"] == "new session event"
