@@ -373,3 +373,18 @@ logs/droplet-events.jsonl
 ```
 
 前端右侧“LLM / Agent 活动链”读取这个结构化事件日志。外部黑盒 Agent 的内部 LLM 轨迹不会被平台自动捕获；如果需要展示关键步骤，Agent 可以调用 `report-event` 或 `POST /api/challenges/{id}/events` 主动上报摘要。
+
+## 12. 新题预处理
+
+可以用预处理工具把收集来的 raw challenge 先转换成 Droplet/XBOW 风格 draft：
+
+```bash
+python -m datasets.preprocessor \
+  --raw-path /path/to/raw/challenge \
+  --output-dir datasets/drafts/my-suite \
+  --challenge-id RAW-001
+```
+
+输出会包含 `droplet.yaml`、`benchmark.json`、`benchmark.yaml`、README 草稿、题目目录和 compose 复制策略说明。没有 LLM 配置时也会生成 draft，并在公开 metadata 中标记 `needs_review: true`。工具不会把 `.env`、flag-like 文件或 secret 值写进公开 metadata；这些内容只作为运行时原题文件保留。
+
+详细说明见 [docs/dataset-preprocessor.md](docs/dataset-preprocessor.md)。
