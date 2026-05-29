@@ -26,7 +26,6 @@ def _make_manager(tmp_path):
         root=str(tmp_path),
         compose_path=str(tmp_path / "docker-compose.yml"),
         expose=[{"name": "web", "protocol": "http", "service": "web", "container_port": 80}],
-        expected_flag="FLAG{test}",
     )
     manager.challenges = {"demo": challenge}
     return manager, challenge

@@ -50,6 +50,17 @@ def reset_engine() -> None:
 def init_db() -> None:
     engine = get_engine()
     SQLModel.metadata.create_all(engine)
+    _ensure_sqlite_columns(engine)
+
+
+def _ensure_sqlite_columns(engine) -> None:
+    """Apply small additive SQLite migrations for existing local databases."""
+    with engine.begin() as connection:
+        tables = {row[0] for row in connection.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "events" in tables:
+            event_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(events)")}
+            if "archived" not in event_columns:
+                connection.exec_driver_sql("ALTER TABLE events ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0")
 
 
 # [3] SQLModel table for audit events — mirrors the JSONL schema exactly
@@ -65,6 +76,7 @@ class Event(SQLModel, table=True):
     challenge_id: str | None = Field(default=None, max_length=64, index=True)
     data: str = Field(default="{}")
     session_id: int = Field(default=1, index=True)
+    archived: bool = Field(default=False, index=True)
 
 
 # [4] System log table for structured application logging

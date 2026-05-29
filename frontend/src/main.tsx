@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
+  AlertTriangle,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -16,10 +17,13 @@ import {
   Moon,
   Play,
   RefreshCw,
+  RotateCcw,
   Shield,
   Square,
   Sun,
+  Trash2,
   Trophy,
+  X,
   Zap,
 } from "lucide-react";
 import "./styles.css";
@@ -33,6 +37,7 @@ type Challenge = {
   category: string;
   task_type: string;
   difficulty: string;
+  dataset_id: string;
   tags: string[];
   hint: string | null;
   status: string;
@@ -136,6 +141,12 @@ function App() {
     setSubmissions(data);
   }
 
+  async function clearEvents(challengeId = selectedId) {
+    if (!challengeId) return;
+    await api(`/api/challenges/${challengeId}/events/clear`, { method: "POST" });
+    setEvents([]);
+  }
+
   async function runAction(fn: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -201,7 +212,7 @@ function App() {
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           <button className="iconButton ghost danger" onClick={() => setShowResetConfirm(true)} disabled={busy} title="重置全部题目">
-            <RefreshCw size={18} />
+            <RotateCcw size={18} />
           </button>
           <button className="iconButton solid" onClick={() => runAction(async () => undefined)} disabled={busy} title="刷新">
             <RefreshCw size={18} />
@@ -209,22 +220,17 @@ function App() {
         </div>
       </header>
 
-      {error && (
-        <div className="notice error">
-          <CircleDot size={16} />
-          <span>{error}</span>
-        </div>
-      )}
+      {error && <ErrorDialog message={error} onClose={() => setError("")} />}
 
       {showResetConfirm && (
-        <div className="notice warn">
-          <CircleDot size={16} />
-          <span>确定要重置所有题目进度吗？此操作不可撤销。</span>
-          <div className="confirmActions">
-            <button className="solid danger" onClick={() => runAction(async () => { await api("/api/challenges/reset-all", { method: "POST" }); setShowResetConfirm(false); })} disabled={busy}>确定重置</button>
-            <button className="ghost" onClick={() => setShowResetConfirm(false)} disabled={busy}>取消</button>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="重置全部题目"
+          message="这会切换到新的评测会话，隐藏当前进度和提交历史视图。正在运行的题目环境不会被强行删除。"
+          confirmLabel="确定重置"
+          busy={busy}
+          onConfirm={() => runAction(async () => { await api("/api/challenges/reset-all", { method: "POST" }); setShowResetConfirm(false); })}
+          onCancel={() => setShowResetConfirm(false)}
+        />
       )}
 
       <StatsBand challenges={challenges} />
@@ -246,7 +252,7 @@ function App() {
                   </div>
                   <div className="actionCluster">
                     <button className="solid" onClick={() => runAction(async () => { await api(`/api/challenges/${selected.id}/start`, { method: "POST" }); })} disabled={running || starting || stopping}>
-                      <Play size={17} />
+                      {selected.status === "solved" || selected.status === "error" ? <RotateCcw size={17} /> : <Play size={17} />}
                       {starting ? "启动中" : stopping ? "停止中" : running ? "运行中" : selected.status === "solved" || selected.status === "error" ? "重置环境" : "启动环境"}
                     </button>
                     <button className="ghost danger" onClick={() => runAction(async () => { await api(`/api/challenges/${selected.id}/stop`, { method: "POST" }); })} disabled={!running && !starting && !stopping}>
@@ -378,6 +384,7 @@ function App() {
           selected={selected}
           events={events}
           onRefresh={() => refreshEvents()}
+          onClear={() => runAction(() => clearEvents())}
           eventLimit={eventLimit}
           onLimitChange={(limit) => {
             setEventLimit(limit);
@@ -395,12 +402,14 @@ function ActivityRail({
   selected,
   events,
   onRefresh,
+  onClear,
   eventLimit,
   onLimitChange,
 }: {
   selected: Challenge | undefined;
   events: AuditEvent[];
   onRefresh: () => void;
+  onClear: () => void;
   eventLimit: number;
   onLimitChange: (limit: number) => void;
 }) {
@@ -431,6 +440,9 @@ function ActivityRail({
           </select>
           <button className="iconButton ghost" onClick={onRefresh} title="刷新活动链" disabled={!selected}>
             <RefreshCw size={16} />
+          </button>
+          <button className="iconButton ghost danger" onClick={onClear} title="清理当前活动链" disabled={!selected || events.length === 0}>
+            <Trash2 size={16} />
           </button>
         </div>
       </div>
@@ -502,12 +514,13 @@ function ChallengeSidebar({
           return (
             <section className="benchmarkBlock" key={group.id}>
               <button className="benchmarkTop" onClick={() => setExpanded((v) => ({ ...v, [group.id]: !v[group.id] }))}>
-                <div>
-                  <span>{group.name}</span>
-                  <strong>{group.challenges.length} 题</strong>
+                <div className="benchmarkName">
+                  <span>Dataset</span>
+                  <strong>{group.name}</strong>
                 </div>
                 <div className="benchmarkRight">
-                  <span>{group.challenges.filter((c) => c.solved).length}/{group.challenges.length}</span>
+                  <span className="countBadge">{group.challenges.length} 题</span>
+                  <em>{group.challenges.filter((c) => c.solved).length}/{group.challenges.length}</em>
                   {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </div>
               </button>
@@ -565,12 +578,80 @@ function isRunning(status: string) {
 function groupChallenges(challenges: Challenge[]) {
   const groups = new Map<string, { id: string; name: string; challenges: Challenge[] }>();
   for (const c of challenges) {
-    const id = c.category || "未分类";
-    const group = groups.get(id) ?? { id, name: id.charAt(0).toUpperCase() + id.slice(1), challenges: [] };
+    const id = c.dataset_id || "unknown-dataset";
+    const group = groups.get(id) ?? { id, name: formatDatasetName(id), challenges: [] };
     group.challenges.push(c);
     groups.set(id, group);
   }
   return [...groups.values()];
+}
+
+function formatDatasetName(value: string) {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function ErrorDialog({ message, onClose }: { message: string; onClose: () => void }) {
+  return (
+    <div className="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="error-title">
+      <div className="dialogCard surface errorDialog">
+        <div className="dialogHeader">
+          <div className="dialogIcon error">
+            <AlertTriangle size={20} />
+          </div>
+          <div>
+            <span>系统错误</span>
+            <strong id="error-title">操作未完成</strong>
+          </div>
+          <button className="iconButton ghost" onClick={onClose} title="关闭">
+            <X size={16} />
+          </button>
+        </div>
+        <pre>{message}</pre>
+        <button className="solid dialogPrimary" onClick={onClose}>知道了</button>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDialog({
+  title,
+  message,
+  confirmLabel,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <div className="dialogCard surface">
+        <div className="dialogHeader">
+          <div className="dialogIcon warn">
+            <RotateCcw size={20} />
+          </div>
+          <div>
+            <span>确认操作</span>
+            <strong id="confirm-title">{title}</strong>
+          </div>
+        </div>
+        <p>{message}</p>
+        <div className="dialogActions">
+          <button className="ghost" onClick={onCancel} disabled={busy}>取消</button>
+          <button className="solid danger" onClick={onConfirm} disabled={busy}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 

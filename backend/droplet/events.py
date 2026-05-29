@@ -72,6 +72,7 @@ class EventStore:
             challenge_id=event["challenge_id"],
             data=json.dumps(event["data"], ensure_ascii=False, default=str),
             session_id=session_id,
+            archived=False,
         )
         with Session(self._engine) as session:
             session.add(db_event)
@@ -84,7 +85,11 @@ class EventStore:
         limit = max(1, min(int(limit), 1000))
         session_id = get_current_session_id()
         with Session(self._engine) as session:
-            query = select(Event).where(Event.session_id == session_id).order_by(desc(Event.timestamp))
+            query = (
+                select(Event)
+                .where(Event.session_id == session_id, Event.archived == False)  # noqa: E712
+                .order_by(desc(Event.timestamp))
+            )
             if challenge_id:
                 query = query.where(Event.challenge_id == challenge_id)
             query = query.limit(limit)
@@ -101,6 +106,20 @@ class EventStore:
                 }
                 for r in results
             ]
+
+    def clear(self, *, challenge_id: str | None = None) -> dict[str, Any]:
+        """Hide visible events for the current session without deleting audit rows."""
+        session_id = get_current_session_id()
+        with Session(self._engine) as session:
+            query = select(Event).where(Event.session_id == session_id, Event.archived == False)  # noqa: E712
+            if challenge_id:
+                query = query.where(Event.challenge_id == challenge_id)
+            rows = session.exec(query).all()
+            for event in rows:
+                event.archived = True
+                session.add(event)
+            session.commit()
+            return {"cleared": len(rows), "challenge_id": challenge_id}
 
     def clear_memory(self) -> None:
         # No-op: SQLite persists everything; clearMemory has no in-memory cache to clear

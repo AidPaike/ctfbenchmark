@@ -44,11 +44,10 @@ class Challenge(BaseModel):
     category: str
     task_type: str
     difficulty: str
+    dataset_id: str = ""
     tags: list[str] = Field(default_factory=list)
     hint: str | None = None
     judge_mode: str = "record_only"
-    expected_flag: str = ""
-    env_path: str = ""
     root: str
     compose_path: str
     expose: list[dict[str, Any]]
@@ -82,6 +81,7 @@ class Challenge(BaseModel):
             "category": self.category,
             "task_type": self.task_type,
             "difficulty": self.difficulty,
+            "dataset_id": self.dataset_id,
             "tags": self.tags,
             "hint": self.hint,
             "judge_mode": self.judge_mode,
