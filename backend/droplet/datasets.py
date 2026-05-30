@@ -49,7 +49,19 @@ class DatasetLoader:
         *,
         infer_expose: InferExpose,
     ) -> dict[str, Challenge]:
-        manifest = yaml.safe_load((dataset_root / "droplet.yaml").read_text(encoding="utf-8")) or {}
+        manifest_path = dataset_root / "droplet.yaml"
+        if manifest_path.exists():
+            return self._load_from_manifest(dataset_root, manifest_path, infer_expose=infer_expose)
+        return self._auto_discover(dataset_root, infer_expose=infer_expose)
+
+    def _load_from_manifest(
+        self,
+        dataset_root: Path,
+        manifest_path: Path,
+        *,
+        infer_expose: InferExpose,
+    ) -> dict[str, Challenge]:
+        manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
         loaded: dict[str, Challenge] = {}
         for item in manifest.get("auto_discover", []):
             dataset_type = str(item.get("type") or "").strip()
@@ -63,6 +75,63 @@ class DatasetLoader:
             ):
                 loaded[challenge.id] = challenge
         return loaded
+
+    def _auto_discover(
+        self,
+        dataset_root: Path,
+        *,
+        infer_expose: InferExpose,
+    ) -> dict[str, Challenge]:
+        """Auto-discover challenges when droplet.yaml is missing.
+
+        Two modes:
+        1. Single-dataset: {root}/challenges/ has benchmark.json subdirs → treat root as xbow dataset
+        2. Multi-dataset: scan root's subdirectories, each may have droplet.yaml or challenges/
+        """
+        # Mode 1: root itself looks like a dataset
+        if _looks_like_dataset(dataset_root):
+            return self._discover_single(dataset_root, infer_expose=infer_expose)
+
+        # Mode 2: scan child directories
+        loaded: dict[str, Challenge] = {}
+        for child in sorted(dataset_root.iterdir()):
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            child_yaml = child / "droplet.yaml"
+            if child_yaml.exists():
+                loaded.update(self._load_from_manifest(child, child_yaml, infer_expose=infer_expose))
+            elif _looks_like_dataset(child):
+                loaded.update(self._discover_single(child, infer_expose=infer_expose))
+        return loaded
+
+    def _discover_single(
+        self,
+        dataset_root: Path,
+        *,
+        infer_expose: InferExpose,
+    ) -> dict[str, Challenge]:
+        """Discover challenges in a single dataset directory using xbow adapter defaults."""
+        adapter = self.adapters.get("xbow")
+        if adapter is None:
+            raise ValueError("No 'xbow' adapter registered for auto-discovery")
+        config: dict[str, Any] = {
+            "type": "xbow",
+            "path": "challenges",
+            "category": "web",
+            "task_type": "web_ctf_online",
+        }
+        loaded: dict[str, Challenge] = {}
+        for challenge in adapter.discover(dataset_root, config, infer_expose=infer_expose):
+            loaded[challenge.id] = challenge
+        return loaded
+
+
+def _looks_like_dataset(path: Path) -> bool:
+    """Check if a directory looks like a dataset (has challenges/ with benchmark.json subdirs)."""
+    challenges_dir = path / "challenges"
+    if not challenges_dir.is_dir():
+        return False
+    return any(challenges_dir.rglob("benchmark.json"))
 
 
 # [4] XbowDatasetAdapter scans public metadata and docker-compose.yml only.
