@@ -56,7 +56,7 @@ def _prestart_ids() -> list[str] | None:
     return [item.strip().lower() for item in raw.split(",") if item.strip()]
 
 
-app = FastAPI(title="Droplet", version="0.5.1")
+app = FastAPI(title="Droplet", version="0.6.0")
 
 # [4] CORS restricted to the frontend origin only; not open to arbitrary domains
 # CORS 仅限前端来源；不对任意域名开放
