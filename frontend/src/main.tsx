@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -91,6 +91,11 @@ function App() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
+  const selectedIdRef = useRef(selectedId);
+  const eventLimitRef = useRef(eventLimit);
+  useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+  useEffect(() => { eventLimitRef.current = eventLimit; }, [eventLimit]);
+
   const selected = useMemo(() => challenges.find((c) => c.id === selectedId), [challenges, selectedId]);
   const groups = useMemo(() => groupChallenges(challenges), [challenges]);
 
@@ -114,8 +119,9 @@ function App() {
     localStorage.setItem("droplet_token", token);
     const data = await api<Challenge[]>("/api/challenges");
     setChallenges(data);
-    const nextSelected = !selectedId || !data.some((c) => c.id === selectedId) ? data[0]?.id ?? "" : selectedId;
-    if (nextSelected !== selectedId) {
+    const currentId = selectedIdRef.current;
+    const nextSelected = !currentId || !data.some((c) => c.id === currentId) ? data[0]?.id ?? "" : currentId;
+    if (nextSelected !== currentId) {
       setSelectedId(nextSelected);
     }
     if (nextSelected) {
@@ -123,7 +129,7 @@ function App() {
     }
   }
 
-  async function refreshEvents(challengeId = selectedId, limit = eventLimit) {
+  async function refreshEvents(challengeId = selectedIdRef.current, limit = eventLimitRef.current) {
     if (!challengeId) {
       setEvents([]);
       return;
@@ -132,7 +138,7 @@ function App() {
     setEvents(data);
   }
 
-  async function refreshSubmissions(challengeId = selectedId) {
+  async function refreshSubmissions(challengeId = selectedIdRef.current) {
     if (!challengeId) {
       setSubmissions([]);
       return;
@@ -141,7 +147,7 @@ function App() {
     setSubmissions(data);
   }
 
-  async function clearEvents(challengeId = selectedId) {
+  async function clearEvents(challengeId = selectedIdRef.current) {
     if (!challengeId) return;
     await api(`/api/challenges/${challengeId}/events/clear`, { method: "POST" });
     setEvents([]);
