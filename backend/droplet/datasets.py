@@ -105,7 +105,7 @@ class XbowDatasetAdapter:
                     int(meta.get("level") or 2),
                     "medium",
                 ),
-                tags=[str(tag) for tag in meta.get("tags", [])],
+                tags=[str(tag) for tag in (meta.get("tags") or [])],
                 hint=str(h) if (h := meta.get("hint")) else None,
                 judge_mode=str(config.get("judge_mode") or "record_only"),
                 root=str(directory),

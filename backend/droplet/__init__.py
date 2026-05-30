@@ -1,2 +1,2 @@
 # [1] Module version identifier / 模块版本标识符
-__version__ = "0.5.1"
+__version__ = "0.6.0"

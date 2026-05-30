@@ -20,10 +20,12 @@ from droplet.manager import DropletManager
 # 模块级单例：一个 DropletManager 实例被所有请求共享
 logger = logging.getLogger("droplet.app")
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 ADMIN_TOKEN = "droplet_dev_admin"
 manager = DropletManager(
-    dataset_root=Path(os.getenv("DROPLET_DATASET_ROOT", "datasets/demo-xbow")),
-    work_root=Path(os.getenv("DROPLET_WORK_ROOT", "data/work")),
+    dataset_root=Path(os.getenv("DROPLET_DATASET_ROOT", _PROJECT_ROOT / "datasets" / "demo-xbow")),
+    work_root=Path(os.getenv("DROPLET_WORK_ROOT", _PROJECT_ROOT / "data" / "work")),
     public_host=os.getenv("DROPLET_PUBLIC_HOST", "127.0.0.1"),
 )
 
@@ -54,7 +56,7 @@ def _prestart_ids() -> list[str] | None:
     return [item.strip().lower() for item in raw.split(",") if item.strip()]
 
 
-app = FastAPI(title="Droplet", version="0.5.1")
+app = FastAPI(title="Droplet", version="0.6.0")
 
 # [4] CORS restricted to the frontend origin only; not open to arbitrary domains
 # CORS 仅限前端来源；不对任意域名开放
