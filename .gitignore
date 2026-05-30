@@ -17,9 +17,12 @@ repos/
 logs/
 
 # Challenge datasets (large, source-specific, not version-controlled)
-# Keep datasets/preprocessor/, datasets/__init__.py, datasets/droplet.yaml tracked
-datasets/demo-xbow/
-datasets/xbow/
+# Ignore all dataset content by default; only keep code/config tracked
+datasets/*
+!datasets/droplet.yaml
+!datasets/CLAUDE.md
+!datasets/__init__.py
+!datasets/preprocessor/
 
 # Build artifacts
 droplet.egg-info/
