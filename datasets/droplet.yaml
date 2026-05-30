@@ -6,7 +6,7 @@ auto_discover:
     category: web
     task_type: web_ctf_online
   - type: xbow
-    path: xbow/benchmarks
+    path: xbow/challenges
     dataset_id: xbow
     category: web
     task_type: web_ctf_online
