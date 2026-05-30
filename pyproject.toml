@@ -1,6 +1,6 @@
 [project]
 name = "droplet"
-version = "0.5.1"
+version = "0.6.0"
 description = "Black-box cybersecurity benchmark platform for external agents"
 requires-python = ">=3.11"
 dependencies = [
