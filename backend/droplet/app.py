@@ -24,7 +24,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 ADMIN_TOKEN = "droplet_dev_admin"
 manager = DropletManager(
-    dataset_root=Path(os.getenv("DROPLET_DATASET_ROOT", _PROJECT_ROOT / "datasets" / "demo-xbow")),
+    dataset_root=Path(os.getenv("DROPLET_DATASET_ROOT", _PROJECT_ROOT / "datasets")),
     work_root=Path(os.getenv("DROPLET_WORK_ROOT", _PROJECT_ROOT / "data" / "work")),
     public_host=os.getenv("DROPLET_PUBLIC_HOST", "127.0.0.1"),
 )

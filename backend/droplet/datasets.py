@@ -114,9 +114,14 @@ class DatasetLoader:
         adapter = self.adapters.get("xbow")
         if adapter is None:
             raise ValueError("No 'xbow' adapter registered for auto-discovery")
+        # Auto-detect the subdirectory containing challenge dirs
+        sub_path = _find_challenge_subdir(dataset_root)
+        if sub_path is None:
+            return {}
         config: dict[str, Any] = {
             "type": "xbow",
-            "path": "challenges",
+            "path": sub_path,
+            "dataset_id": dataset_root.name,
             "category": "web",
             "task_type": "web_ctf_online",
         }
@@ -127,11 +132,42 @@ class DatasetLoader:
 
 
 def _looks_like_dataset(path: Path) -> bool:
-    """Check if a directory looks like a dataset (has challenges/ with benchmark.json subdirs)."""
-    challenges_dir = path / "challenges"
-    if not challenges_dir.is_dir():
-        return False
-    return any(challenges_dir.rglob("benchmark.json"))
+    """Check if a directory is a single dataset.
+
+    A single dataset has a direct child directory whose immediate subdirectories
+    contain benchmark.json. E.g.:
+        path/challenges/XBEN-001/benchmark.json  → True (challenges is the challenge dir)
+
+    A parent of multiple datasets has children that are themselves datasets:
+        path/demo-xbow/challenges/XBEN-001/benchmark.json  → False
+    """
+    for child in sorted(path.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        # Check if this child directly contains challenge dirs (have benchmark.json)
+        has_direct_challenges = any(
+            (grandchild / "benchmark.json").exists()
+            for grandchild in child.iterdir()
+            if grandchild.is_dir()
+        )
+        if has_direct_challenges:
+            return True
+    return False
+
+
+def _find_challenge_subdir(path: Path) -> str | None:
+    """Find the first child directory that directly contains challenge subdirs."""
+    for child in sorted(path.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        has_direct_challenges = any(
+            (grandchild / "benchmark.json").exists()
+            for grandchild in child.iterdir()
+            if grandchild.is_dir()
+        )
+        if has_direct_challenges:
+            return child.name
+    return None
 
 
 # [4] XbowDatasetAdapter scans public metadata and docker-compose.yml only.
@@ -169,7 +205,7 @@ class XbowDatasetAdapter:
                 description=_public_description(readme, str(meta.get("description") or "")),
                 category=config.get("category") or "web",
                 task_type=config.get("task_type") or "web_ctf_online",
-                dataset_id=dataset_root.name,
+                dataset_id=str(config.get("dataset_id") or dataset_root.name),
                 difficulty={1: "easy", 2: "medium", 3: "hard"}.get(
                     int(meta.get("level") or 2),
                     "medium",

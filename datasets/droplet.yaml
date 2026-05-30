@@ -1,0 +1,12 @@
+schema_version: 1
+auto_discover:
+  - type: xbow
+    path: demo-xbow/challenges
+    dataset_id: demo-xbow
+    category: web
+    task_type: web_ctf_online
+  - type: xbow
+    path: xbow/benchmarks
+    dataset_id: xbow
+    category: web
+    task_type: web_ctf_online
