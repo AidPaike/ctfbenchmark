@@ -16,6 +16,12 @@ data/
 repos/
 logs/
 
+# Challenge datasets (large, source-specific, not version-controlled)
+# Keep datasets/preprocessor/ and datasets/__init__.py tracked
+datasets/demo-xbow/
+datasets/xbow/
+datasets/droplet.yaml
+
 # Build artifacts
 droplet.egg-info/
 *.egg-info/
