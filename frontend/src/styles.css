@@ -475,6 +475,8 @@ h2 {
 .taskIndex {
   border-top: 1px solid #243230;
   display: grid;
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 .taskLine {
