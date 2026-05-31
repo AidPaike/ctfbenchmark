@@ -84,6 +84,8 @@ class DropletManager:
             )
         )
         self._start_lock = threading.Lock()
+        self._prefetch_lock = threading.Lock()
+        self._prefetch_state: dict[str, Any] = {"running": False, "total": 0, "current": 0, "pulled": 0, "skipped": 0, "errors": 0, "current_id": ""}
 
         self.work_root.mkdir(parents=True, exist_ok=True)
         # [4] Cleanup leftover directories from a previous unclean shutdown to avoid disk leaks or zombie Docker projects
@@ -294,46 +296,67 @@ class DropletManager:
         return {"stopped": stopped, "errors": errors}
 
     def prefetch_images(self, challenge_ids: list[str] | None = None) -> dict[str, Any]:
-        """Pre-pull Docker images for challenges to speed up subsequent starts.
+        """Start pre-pulling Docker images in a background thread.
 
-        Runs `docker compose pull` for each challenge's docker-compose.yml.
-        When images are already cached, this is a fast no-op.
+        Returns immediately with a summary. Query progress via prefetch_progress().
         """
-        targets = challenge_ids or list(self.challenges.keys())
-        pulled: list[str] = []
-        skipped: list[str] = []
-        errors: dict[str, str] = {}
+        with self._prefetch_lock:
+            if self._prefetch_state.get("running"):
+                return {"status": "already_running", **self._prefetch_state}
 
+        targets = challenge_ids or list(self.challenges.keys())
+        self._prefetch_state = {
+            "running": True,
+            "total": len(targets),
+            "current": 0,
+            "pulled": 0,
+            "skipped": 0,
+            "errors": 0,
+            "current_id": "",
+        }
+
+        thread = threading.Thread(
+            target=self._do_prefetch,
+            args=(targets,),
+            daemon=True,
+        )
+        thread.start()
+        return {"status": "started", "total": len(targets)}
+
+    def prefetch_progress(self) -> dict[str, Any]:
+        """Return current prefetch progress."""
+        with self._prefetch_lock:
+            return dict(self._prefetch_state)
+
+    def _do_prefetch(self, targets: list[str]) -> None:
+        """Background worker: pull images one by one, updating progress."""
         docker_env = self._docker_environment()
 
         for challenge_id in targets:
+            with self._prefetch_lock:
+                self._prefetch_state["current_id"] = challenge_id
+
             challenge = self.challenges.get(challenge_id)
             if challenge is None:
-                errors[challenge_id] = "Challenge not found"
+                with self._prefetch_lock:
+                    self._prefetch_state["current"] += 1
+                    self._prefetch_state["errors"] += 1
                 continue
             if challenge.status in (ChallengeStatus.running, ChallengeStatus.starting):
-                skipped.append(challenge_id)
+                with self._prefetch_lock:
+                    self._prefetch_state["current"] += 1
+                    self._prefetch_state["skipped"] += 1
                 continue
 
             compose_src = Path(challenge.root) / "docker-compose.yml"
             if not compose_src.exists():
-                errors[challenge_id] = "No docker-compose.yml"
+                with self._prefetch_lock:
+                    self._prefetch_state["current"] += 1
+                    self._prefetch_state["errors"] += 1
                 continue
 
             try:
-                # Parse image names from compose file for logging
-                compose_data = yaml.safe_load(compose_src.read_text(encoding="utf-8")) or {}
-                images = set()
-                for svc in (compose_data.get("services") or {}).values():
-                    img = svc.get("image")
-                    if img:
-                        images.add(str(img))
-
-                logger.info(
-                    f"Pre-pulling images for {challenge_id}: {images or '(build-only)'}",
-                    extra={"challenge_id": challenge_id},
-                )
-
+                logger.info(f"Pre-pulling images for {challenge_id}", extra={"challenge_id": challenge_id})
                 result = subprocess.run(
                     ["docker", "compose", "-f", str(compose_src), "pull"],
                     cwd=str(Path(challenge.root)),
@@ -342,17 +365,29 @@ class DropletManager:
                     text=True,
                     timeout=300,
                 )
-                if result.returncode == 0:
-                    pulled.append(challenge_id)
-                else:
-                    errors[challenge_id] = (result.stderr or result.stdout or "").strip()[:200]
+                with self._prefetch_lock:
+                    self._prefetch_state["current"] += 1
+                    if result.returncode == 0:
+                        self._prefetch_state["pulled"] += 1
+                    else:
+                        self._prefetch_state["errors"] += 1
             except subprocess.TimeoutExpired:
-                errors[challenge_id] = "Pull timed out (300s)"
-            except Exception as exc:
-                errors[challenge_id] = str(exc)
+                with self._prefetch_lock:
+                    self._prefetch_state["current"] += 1
+                    self._prefetch_state["errors"] += 1
+            except Exception:
+                with self._prefetch_lock:
+                    self._prefetch_state["current"] += 1
+                    self._prefetch_state["errors"] += 1
 
-        logger.info(f"Pre-pull complete: {len(pulled)} pulled, {len(skipped)} skipped, {len(errors)} errors")
-        return {"pulled": pulled, "skipped": skipped, "errors": errors}
+        with self._prefetch_lock:
+            self._prefetch_state["running"] = False
+            self._prefetch_state["current_id"] = ""
+        logger.info(
+            f"Pre-pull complete: {self._prefetch_state['pulled']} pulled, "
+            f"{self._prefetch_state['skipped']} skipped, "
+            f"{self._prefetch_state['errors']} errors"
+        )
 
     def stop_challenge(self, challenge_id: str) -> Challenge:
         challenge = self.get_challenge(challenge_id)

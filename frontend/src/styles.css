@@ -371,6 +371,59 @@ h2 {
   flex-shrink: 0;
 }
 
+/* ── Prefetch progress tile ── */
+.statTile.prefetchTile {
+  border-color: rgba(106, 208, 255, 0.45);
+  gap: 8px;
+  grid-column: span 2;
+}
+
+.prefetchSpin {
+  color: #6ad0ff;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.prefetchInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.prefetchInfo span {
+  font-size: 10px;
+}
+
+.prefetchBar {
+  background: #16201e;
+  border: 1px solid #2c3c38;
+  border-radius: 999px;
+  height: 6px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.prefetchFill {
+  background: #6ad0ff;
+  border-radius: 999px;
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.prefetchInfo em {
+  color: #6ad0ff;
+  display: block;
+  font-size: 10px;
+  font-style: normal;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .evaluationGrid {
   display: grid;
   gap: 14px;

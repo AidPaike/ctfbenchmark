@@ -214,6 +214,11 @@ def prefetch_images(payload: dict | None = None, _: None = Depends(require_auth)
     return manager.prefetch_images(challenge_ids)
 
 
+@app.get("/api/challenges/prefetch/progress")
+def prefetch_progress(_: None = Depends(require_auth)) -> dict:
+    return manager.prefetch_progress()
+
+
 @app.post("/api/challenges/start-all")
 def start_all_challenges(payload: dict | None = None, _: None = Depends(require_auth)) -> dict:
     challenge_ids = payload.get("challenge_ids") if payload else None
