@@ -38,6 +38,22 @@ BACKEND_LOG="${LOG_DIR}/backend.log"
 # ── Stop any existing instances ────────────────────────────────────
 bash "${SCRIPT_DIR}/stop.sh" >/dev/null 2>&1 || true
 
+# ── Verify ports are free ──────────────────────────────────────────
+_check_port() {
+  local port="$1"
+  local pids
+  pids=$(lsof -ti:"$port" 2>/dev/null || true)
+  if [[ -n "$pids" ]]; then
+    echo -e "\e[33m[WARN]\e[0m Port $port is in use (PID: $pids), killing ..."
+    for pid in $pids; do
+      kill -9 "$pid" 2>/dev/null || true
+    done
+    sleep 0.5
+  fi
+}
+_check_port "$BACKEND_PORT"
+_check_port "$FRONTEND_PORT"
+
 mkdir -p "$LOG_DIR"
 rm -f "$BACKEND_LOG"
 
@@ -59,6 +75,14 @@ python -m uvicorn droplet.app:app \
   --port "$BACKEND_PORT" \
   > "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
+
+# Wait briefly and check if backend started successfully
+sleep 2
+if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+  echo -e "\e[31m[ERROR]\e[0m Backend failed to start. Check logs:"
+  tail -5 "$BACKEND_LOG" 2>/dev/null
+  exit 1
+fi
 
 # ── Terminal scroll-region setup ───────────────────────────────────
 # We draw a fixed banner in the top lines and make everything below it
