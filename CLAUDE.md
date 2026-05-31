@@ -181,6 +181,7 @@ datasets/
 | `DROPLET_PUBLIC_HOST` | `127.0.0.1` | Host exposed to agents |
 | `DROPLET_DATABASE_PATH` | `data/droplet.db` | SQLite file path |
 | `DROPLET_PRESTART_CHALLENGES` | `1` | Auto-start all on backend startup |
+| `DROPLET_PREFETCH_IMAGES` | `1` | Pre-pull Docker images before starting challenges |
 | `DROPLET_DOCKER_PROXY` | — | HTTP proxy injected into Docker builds |
 | `DROPLET_DOCKER_NO_PROXY` | — | Proxy bypass list for Docker builds |
 | `DROPLET_TARGET_READY_TIMEOUT` | `90` | Seconds to wait for endpoint health |

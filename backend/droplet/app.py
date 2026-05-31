@@ -100,7 +100,7 @@ def startup() -> None:
     app.state.prestart = None
     if _env_enabled("DROPLET_PRESTART_CHALLENGES", default=True):
         prestart_ids = _prestart_ids()
-        if _env_enabled("DROPLET_PREFETCH_IMAGES", default=False):
+        if _env_enabled("DROPLET_PREFETCH_IMAGES", default=True):
             logger.info("Pre-pulling Docker images before starting challenges...")
             manager.prefetch_images(prestart_ids)
         app.state.prestart = manager.start_all(prestart_ids)
