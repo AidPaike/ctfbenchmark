@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  Activity,
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
@@ -21,7 +20,6 @@ import {
   Shield,
   Square,
   Sun,
-  Trash2,
   Trophy,
   X,
   Zap,
@@ -51,16 +49,6 @@ type Challenge = {
   error_message: string | null;
 };
 
-type AuditEvent = {
-  id: string;
-  timestamp: string;
-  level: string;
-  event_type: string;
-  message: string;
-  challenge_id: string | null;
-  data: Record<string, unknown>;
-};
-
 type Submission = {
   id: number;
   challenge_id: string;
@@ -85,18 +73,11 @@ function App() {
   const [answer, setAnswer] = useState("");
   const [hintContent, setHintContent] = useState<string | null>(null);
   const [submissionMessage, setSubmissionMessage] = useState<string | null>(null);
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [eventLimit, setEventLimit] = useState<number>(() => {
-    const saved = localStorage.getItem("droplet_event_limit");
-    return saved ? parseInt(saved, 10) : 200;
-  });
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const selectedIdRef = useRef(selectedId);
-  const eventLimitRef = useRef(eventLimit);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
-  useEffect(() => { eventLimitRef.current = eventLimit; }, [eventLimit]);
 
   const selected = useMemo(() => challenges.find((c) => c.id === selectedId), [challenges, selectedId]);
   const groups = useMemo(() => groupChallenges(challenges), [challenges]);
@@ -131,17 +112,8 @@ function App() {
       setSelectedId(nextSelected);
     }
     if (nextSelected) {
-      await refreshEvents(nextSelected);
+      await refreshSubmissions(nextSelected);
     }
-  }
-
-  async function refreshEvents(challengeId = selectedIdRef.current, limit = eventLimitRef.current) {
-    if (!challengeId) {
-      setEvents([]);
-      return;
-    }
-    const data = await api<AuditEvent[]>(`/api/challenges/${challengeId}/events?limit=${limit}`);
-    setEvents(data);
   }
 
   async function refreshSubmissions(challengeId = selectedIdRef.current) {
@@ -153,19 +125,12 @@ function App() {
     setSubmissions(data);
   }
 
-  async function clearEvents(challengeId = selectedIdRef.current) {
-    if (!challengeId) return;
-    await api(`/api/challenges/${challengeId}/events/clear`, { method: "POST" });
-    setEvents([]);
-  }
-
   async function runAction(fn: () => Promise<void>) {
     setBusy(true);
     setError("");
     try {
       await fn();
       await refresh();
-      await refreshEvents();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -186,7 +151,6 @@ function App() {
     setHintContent(null);
     setSubmissionMessage(null);
     setAnswer("");
-    refreshEvents().catch((err) => setError(err instanceof Error ? err.message : String(err)));
     refreshSubmissions().catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [selectedId]);
 
@@ -260,15 +224,14 @@ function App() {
         </div>
       </header>
 
-      {prefetch?.running && (
+      {prefetchProgress?.running && (
         <div className="prefetchBanner">
           <RefreshCw size={15} className="prefetchSpin" />
           <span>镜像预热</span>
           <div className="prefetchBar">
-            <div className="prefetchFill" style={{ width: `${prefetch.total ? (prefetch.current / prefetch.total) * 100 : 0}%` }} />
+            <div className="prefetchFill" style={{ width: `${prefetchProgress.total ? (prefetchProgress.current / prefetchProgress.total) * 100 : 0}%` }} />
           </div>
-          <em>{prefetch.current}/{prefetch.total}</em>
-          <span className="prefetchDetail">{prefetch.current_id.toUpperCase()}{prefetch.pulled > 0 ? ` · 已拉取 ${prefetch.pulled}` : ""}</span>
+          <em>{prefetchProgress.current}/{prefetchProgress.total}</em>
         </div>
       )}
 
@@ -431,91 +394,11 @@ function App() {
             <div className="emptyBox">请选择题目</div>
           )}
         </section>
-
-        <ActivityRail
-          selected={selected}
-          events={events}
-          onRefresh={() => refreshEvents()}
-          onClear={() => runAction(() => clearEvents())}
-          eventLimit={eventLimit}
-          onLimitChange={(limit) => {
-            setEventLimit(limit);
-            localStorage.setItem("droplet_event_limit", String(limit));
-            refreshEvents(undefined, limit);
-          }}
-        />
       </section>
     </main>
   );
 }
 
-
-function ActivityRail({
-  selected,
-  events,
-  onRefresh,
-  onClear,
-  eventLimit,
-  onLimitChange,
-}: {
-  selected: Challenge | undefined;
-  events: AuditEvent[];
-  onRefresh: () => void;
-  onClear: () => void;
-  eventLimit: number;
-  onLimitChange: (limit: number) => void;
-}) {
-  const errors = events.filter((event) => event.level === "error").length;
-  const visible = [...events].reverse();
-
-  return (
-    <aside className="traceRail surface">
-      <div className="traceHeader">
-        <div>
-          <span>LLM / Agent 活动链</span>
-          <strong>{selected ? selected.id.toUpperCase() : "未选择题目"}</strong>
-        </div>
-        <div className="traceStats">
-          <span>{events.length} 事件</span>
-          <span>{errors} 错误</span>
-          <select
-            className="limitSelect"
-            value={eventLimit}
-            onChange={(e) => onLimitChange(parseInt(e.target.value, 10))}
-            title="显示数量"
-          >
-            <option value={10}>近 10 条</option>
-            <option value={50}>近 50 条</option>
-            <option value={100}>近 100 条</option>
-            <option value={200}>近 200 条</option>
-            <option value={500}>近 500 条</option>
-          </select>
-          <button className="iconButton ghost" onClick={onRefresh} title="刷新活动链" disabled={!selected}>
-            <RefreshCw size={16} />
-          </button>
-          <button className="iconButton ghost danger" onClick={onClear} title="清理当前活动链" disabled={!selected || events.length === 0}>
-            <Trash2 size={16} />
-          </button>
-        </div>
-      </div>
-
-      <div className="traceLedger">
-        {!selected && <div className="emptyBox">选择题目后显示活动链</div>}
-        {selected && visible.length === 0 && <div className="emptyBox">暂无日志事件</div>}
-        {visible.map((event) => (
-          <article className={`traceEvent ${eventTone(event)}`} key={event.id}>
-            <div className="traceEventHeader">
-              <Activity size={14} />
-              <strong>{eventLabel(event.event_type)}</strong>
-              <time>{formatTime(event.timestamp)}</time>
-            </div>
-            <pre>{formatEvent(event)}</pre>
-          </article>
-        ))}
-      </div>
-    </aside>
-  );
-}
 
 function StatsBand({ challenges, onStop }: { challenges: Challenge[]; onStop: (id: string) => void }) {
   const total = challenges.length;
@@ -722,34 +605,6 @@ function ConfirmDialog({
   );
 }
 
-
-function eventTone(event: AuditEvent) {
-  if (event.level === "error") return "error";
-  if (event.level === "warning") return "warn";
-  if (["challenge_started", "challenge_solved", "submission_recorded"].includes(event.event_type)) return "ok";
-  return "";
-}
-
-function eventLabel(value: string) {
-  const labels: Record<string, string> = {
-    challenges_loaded: "加载题目",
-    challenge_start_requested: "启动请求",
-    challenge_started: "环境就绪",
-    challenge_start_failed: "启动失败",
-    challenge_stopped: "环境停止",
-    challenge_stopped_externally: "外部停止",
-    submission_recorded: "提交记录",
-    challenge_solved: "题目解出",
-    hint_viewed: "查看提示",
-    agent_event: "Agent 事件",
-  };
-  return labels[value] ?? value;
-}
-
-function formatEvent(event: AuditEvent) {
-  const data = Object.keys(event.data || {}).length ? `\n${JSON.stringify(event.data, null, 2)}` : "";
-  return `${event.message}${data}`;
-}
 
 function formatTime(value: string) {
   const date = new Date(value);

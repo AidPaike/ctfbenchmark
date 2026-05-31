@@ -127,7 +127,6 @@ input:focus {
 
 .eyebrow,
 .panelHeader span,
-.traceHeader span,
 .railHeader span,
 .descriptionPanel > span,
 .metaCell span,
@@ -135,7 +134,6 @@ input:focus {
 .field span,
 .modalHeader span,
 .statTile span,
-.traceStats span,
 .runStats span,
 .taskIdLine > span {
   color: #899693;
@@ -407,15 +405,6 @@ h2 {
   flex-shrink: 0;
 }
 
-.prefetchDetail {
-  color: #6a8a96 !important;
-  font-size: 11px !important;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
 .prefetchSpin {
   color: #6ad0ff;
   animation: spin 1s linear infinite;
@@ -444,7 +433,7 @@ h2 {
 .evaluationGrid {
   display: grid;
   gap: 14px;
-  grid-template-columns: minmax(260px, 315px) minmax(560px, 1fr) minmax(340px, 430px);
+  grid-template-columns: minmax(260px, 315px) minmax(560px, 1fr);
   margin: 0 auto;
   max-width: 1800px;
 }
@@ -473,7 +462,6 @@ h2 {
 .benchmarkList,
 .taskStack,
 .queueRows,
-.traceLedger,
 .settingsGrid {
   display: grid;
   gap: 10px;
@@ -801,15 +789,13 @@ h2 {
 }
 
 .taskDetail,
-.runQueue,
-.traceRail {
+.runQueue {
   min-width: 0;
   padding: 16px;
 }
 
 .detailHeader,
 .panelHeader,
-.traceHeader,
 .modalHeader {
   align-items: flex-start;
   display: flex;
@@ -970,7 +956,6 @@ h2 {
 }
 
 .panelHeader strong,
-.traceHeader strong,
 .modalHeader strong {
   color: #eff7f3;
   display: block;
@@ -1072,32 +1057,6 @@ h2 {
   color: #d6ff57;
 }
 
-.traceRail {
-  align-self: start;
-  max-height: calc(100vh - 144px);
-  overflow: hidden;
-  position: sticky;
-  top: 16px;
-}
-
-.traceStats {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  min-width: 120px;
-}
-
-.limitSelect {
-  background: #0b1111;
-  border: 1px solid #243333;
-  border-radius: 6px;
-  color: #dce6e2;
-  font-size: 12px;
-  min-height: 28px;
-  padding: 2px 6px;
-}
-
 .leaderboardPage {
   display: grid;
   gap: 14px;
@@ -1189,68 +1148,6 @@ h2 {
 .leaderRow time {
   color: #899693;
   font-size: 12px;
-}
-
-.traceLedger {
-  margin-top: 14px;
-  max-height: calc(100vh - 260px);
-  overflow: auto;
-  padding-right: 2px;
-}
-
-.traceEvent {
-  background: #0a1010;
-  border: 1px solid #243230;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.traceEvent.ok {
-  border-color: rgba(104, 240, 168, 0.5);
-}
-
-.traceEvent.warn {
-  border-color: rgba(255, 200, 87, 0.5);
-}
-
-.traceEvent.error {
-  border-color: rgba(255, 120, 120, 0.55);
-}
-
-.traceEventHeader {
-  align-items: center;
-  border-bottom: 1px solid #1d2927;
-  display: grid;
-  gap: 8px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  padding: 9px 10px;
-}
-
-.traceEventHeader span,
-.traceEventHeader em {
-  color: #84938e;
-  font-size: 11px;
-  font-style: normal;
-  text-transform: uppercase;
-}
-
-.traceEventHeader strong {
-  color: #f0f6f2;
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.traceEvent pre {
-  color: #bdeccf;
-  font-size: 12px;
-  line-height: 1.55;
-  margin: 0;
-  overflow: auto;
-  padding: 12px;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 .emptyBox {
@@ -1420,16 +1317,6 @@ h2 {
     grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   }
 
-  .traceRail {
-    grid-column: 1 / -1;
-    max-height: none;
-    position: static;
-  }
-
-  .traceLedger {
-    max-height: 440px;
-  }
-
   .statsBand {
     grid-template-columns: repeat(4, minmax(120px, 1fr));
   }
@@ -1443,7 +1330,6 @@ h2 {
   .commandBar,
   .detailHeader,
   .panelHeader,
-  .traceHeader,
   .modalHeader {
     align-items: stretch;
     flex-direction: column;
@@ -1535,7 +1421,6 @@ h2 {
 :root[data-theme="light"] h1,
 :root[data-theme="light"] h2,
 :root[data-theme="light"] .panelHeader strong,
-:root[data-theme="light"] .traceHeader strong,
 :root[data-theme="light"] .modalHeader strong,
 :root[data-theme="light"] .statTile strong,
 :root[data-theme="light"] .metaCell strong,
@@ -1550,7 +1435,6 @@ h2 {
 :root[data-theme="light"] .leaderHeroStats > div,
 :root[data-theme="light"] .metaCell,
 :root[data-theme="light"] .queueRow,
-:root[data-theme="light"] .traceEvent,
 :root[data-theme="light"] .emptyBox {
   background: #faf9f5;
   border-color: #ddd8d0;
@@ -1628,14 +1512,9 @@ h2 {
   color: #6b7d75;
 }
 
-:root[data-theme="light"] .traceEventHeader,
 :root[data-theme="light"] .leaderTableHead {
   background: #f5f3ee;
   border-color: #ddd8d0;
-}
-
-:root[data-theme="light"] .traceEvent pre {
-  color: #1a5c3e;
 }
 
 :root[data-theme="light"] ::-webkit-scrollbar-thumb {
@@ -1674,7 +1553,6 @@ h2 {
 
 :root[data-theme="light"] .eyebrow,
 :root[data-theme="light"] .panelHeader span,
-:root[data-theme="light"] .traceHeader span,
 :root[data-theme="light"] .railHeader span,
 :root[data-theme="light"] .descriptionPanel > span,
 :root[data-theme="light"] .metaCell span,
@@ -1682,7 +1560,6 @@ h2 {
 :root[data-theme="light"] .field span,
 :root[data-theme="light"] .modalHeader span,
 :root[data-theme="light"] .statTile span,
-:root[data-theme="light"] .traceStats span,
 :root[data-theme="light"] .runStats span,
 :root[data-theme="light"] .taskIdLine > span {
   color: #7a8a80;
@@ -1941,7 +1818,6 @@ h2 {
 :root[data-theme="light"] h1,
 :root[data-theme="light"] h2,
 :root[data-theme="light"] .panelHeader strong,
-:root[data-theme="light"] .traceHeader strong,
 :root[data-theme="light"] .modalHeader strong,
 :root[data-theme="light"] .dialogHeader strong,
 :root[data-theme="light"] .statTile strong,
@@ -1957,7 +1833,6 @@ h2 {
 :root[data-theme="light"] .leaderHeroStats > div,
 :root[data-theme="light"] .metaCell,
 :root[data-theme="light"] .queueRow,
-:root[data-theme="light"] .traceEvent,
 :root[data-theme="light"] .emptyBox,
 :root[data-theme="light"] .dialogCard {
   background: #f7faf8;
@@ -2058,10 +1933,6 @@ h2 {
 :root[data-theme="light"] .queueRow time,
 :root[data-theme="light"] .leaderRow time {
   color: #536761;
-}
-
-:root[data-theme="light"] .traceEvent pre {
-  color: #315a4f;
 }
 
 :root[data-theme="light"] .statusDot.running,
