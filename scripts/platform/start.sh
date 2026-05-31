@@ -91,7 +91,7 @@ C_WHITE=$(C "97")
 print_banner() {
   local fe_url="http://${BACKEND_HOST}:${FRONTEND_PORT}"
   local be_url="http://${BACKEND_HOST}:${BACKEND_PORT}"
-  local ds_path="$DROPLET_DATASET_ROOT"
+  local ds_path="${DROPLET_DATASET_ROOT:-${PROJECT_ROOT}/datasets}"
 
   echo ""
   echo -e "       ${C_SPLASH}~  ~${C_RESET}                 ${C_BOLD}${C_CYAN}Droplet${C_RESET}  ${C_DIM}v${VERSION}${C_RESET}"
