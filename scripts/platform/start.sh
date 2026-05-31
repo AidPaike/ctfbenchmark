@@ -130,7 +130,7 @@ print_banner() {
   echo -e "  ${C_BOLD}Backend${C_RESET}    ${C_GREEN}${be_url}${C_RESET}"
   echo -e "  ${C_BOLD}Dataset${C_RESET}    ${C_DIM}${ds_path}${C_RESET}"
   echo ""
-  echo -e "  ${C_BOLD}Prefetch${C_RESET}   ${C_DIM}等待中...${C_RESET}"
+  echo -e "  ${C_BOLD}Prefetch${C_RESET}   ${C_DIM}启动中...${C_RESET}"
   echo ""
   echo -e "  ${C_DIM}Press Ctrl+C to stop${C_RESET}"
   echo ""
@@ -163,7 +163,7 @@ fi
 # ── Stream backend logs in the scroll region ───────────────────────
 TAIL_PID=""
 if [[ "$_HAS_TPUT" == "1" ]]; then
-  tail -n +1 -f "$BACKEND_LOG" &
+  tail -n +1 -f --poll "$BACKEND_LOG" &
   TAIL_PID=$!
 fi
 
