@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections import defaultdict
 from collections.abc import Callable, Iterable
@@ -10,6 +11,8 @@ from typing import Any, Protocol
 import yaml
 
 from droplet.models import Challenge
+
+logger = logging.getLogger(__name__)
 
 
 # [1] Type aliases make the function signatures self-documenting
@@ -47,10 +50,22 @@ class DatasetLoader:
         dataset_root: Path,
         *,
         infer_expose: InferExpose,
+        config_path: Path | None = None,
     ) -> dict[str, Challenge]:
-        manifest_path = dataset_root / "droplet.yaml"
-        if manifest_path.exists():
-            return self._load_from_manifest(dataset_root, manifest_path, infer_expose=infer_expose)
+        # Config lookup order:
+        # 1. Explicit config_path parameter
+        # 2. {dataset_root}/../droplet.yaml (project root)
+        # 3. {dataset_root}/droplet.yaml (legacy)
+        # 4. Auto-discover
+        candidates = []
+        if config_path is not None:
+            candidates.append(config_path)
+        candidates.append(dataset_root.parent / "droplet.yaml")
+        candidates.append(dataset_root / "droplet.yaml")
+
+        for path in candidates:
+            if path.exists():
+                return self._load_from_manifest(dataset_root, path, infer_expose=infer_expose)
         return self._auto_discover(dataset_root, infer_expose=infer_expose)
 
     def _load_from_manifest(
@@ -61,6 +76,15 @@ class DatasetLoader:
         infer_expose: InferExpose,
     ) -> dict[str, Challenge]:
         manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+        config_dir = manifest_path.parent
+
+        # schema_version: 2 — simple path list
+        if manifest.get("schema_version") == 2 and "datasets" in manifest:
+            return self._load_simple_paths(
+                manifest["datasets"], config_dir, infer_expose=infer_expose
+            )
+
+        # schema_version: 1 (or legacy) — auto_discover with full config
         loaded: dict[str, Challenge] = {}
         for item in manifest.get("auto_discover", []):
             dataset_type = str(item.get("type") or "").strip()
@@ -73,6 +97,65 @@ class DatasetLoader:
                 infer_expose=infer_expose,
             ):
                 loaded[challenge.id] = challenge
+        return loaded
+
+    def _load_simple_paths(
+        self,
+        paths: list[str],
+        config_dir: Path,
+        *,
+        infer_expose: InferExpose,
+    ) -> dict[str, Challenge]:
+        """Load datasets from a simple list of directory paths.
+
+        Each path can be:
+        - A directory directly containing challenge subdirs (with benchmark.json)
+        - A directory containing a challenges/ subdirectory
+
+        Paths are resolved relative to the config file's directory.
+        """
+        loaded: dict[str, Challenge] = {}
+        adapter = self.adapters.get("xbow")
+        if adapter is None:
+            raise ValueError("No 'xbow' registered for simple path discovery")
+
+        for raw_path in paths:
+            resolved = (config_dir / raw_path).resolve()
+            if not resolved.exists():
+                logger.warning(f"Dataset path does not exist: {resolved}")
+                continue
+
+            # Determine if resolved is a challenge dir itself or a parent
+            if _is_challenge_dir(resolved):
+                # resolved directly contains challenge subdirs
+                dataset_id = resolved.parent.name
+                config: dict[str, Any] = {
+                    "type": "xbow",
+                    "path": resolved.name,
+                    "dataset_id": dataset_id,
+                    "category": "web",
+                    "task_type": "web_ctf_online",
+                }
+                for challenge in adapter.discover(
+                    resolved.parent, config, infer_expose=infer_expose
+                ):
+                    loaded[challenge.id] = challenge
+            else:
+                # resolved is a parent; look for challenges/ subdir
+                sub_path = _find_challenge_subdir(resolved)
+                if sub_path is None:
+                    logger.warning(f"No challenges found in: {resolved}")
+                    continue
+                dataset_id = resolved.name
+                config = {
+                    "type": "xbow",
+                    "path": sub_path,
+                    "dataset_id": dataset_id,
+                    "category": "web",
+                    "task_type": "web_ctf_online",
+                }
+                for challenge in adapter.discover(resolved, config, infer_expose=infer_expose):
+                    loaded[challenge.id] = challenge
         return loaded
 
     def _auto_discover(
@@ -130,6 +213,16 @@ class DatasetLoader:
         for challenge in adapter.discover(dataset_root, config, infer_expose=infer_expose):
             loaded[challenge.id] = challenge
         return loaded
+
+
+def _is_challenge_dir(path: Path) -> bool:
+    """Check if a directory directly contains challenge subdirs (with benchmark.json)."""
+    try:
+        return any(
+            (child / "benchmark.json").exists() for child in path.iterdir() if child.is_dir()
+        )
+    except (PermissionError, OSError):
+        return False
 
 
 def _looks_like_dataset(path: Path) -> bool:

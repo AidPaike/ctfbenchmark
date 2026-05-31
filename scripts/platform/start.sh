@@ -6,7 +6,6 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # ── Configuration ──────────────────────────────────────────────────
 export PYTHONPATH="${PYTHONPATH:-}:${PROJECT_ROOT}/backend:${PROJECT_ROOT}/sdk"
-export DROPLET_DATASET_ROOT="${DROPLET_DATASET_ROOT:-${PROJECT_ROOT}/datasets/demo-xbow}"
 export DROPLET_WORK_ROOT="${DROPLET_WORK_ROOT:-${PROJECT_ROOT}/data/work}"
 export DROPLET_PUBLIC_HOST="${DROPLET_PUBLIC_HOST:-127.0.0.1}"
 export DROPLET_DATABASE_PATH="${DROPLET_DATABASE_PATH:-${PROJECT_ROOT}/data/droplet.db}"

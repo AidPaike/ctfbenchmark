@@ -1,0 +1,4 @@
+schema_version: 2
+datasets:
+  - ./datasets/xbow/challenges
+  - ./datasets/demo-xbow/challenges

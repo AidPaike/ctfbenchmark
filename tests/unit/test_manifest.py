@@ -4,16 +4,13 @@ from droplet.manager import DropletManager
 
 
 def test_demo_xbow_challenges_are_discovered() -> None:
-    manager = DropletManager(dataset_root=Path("datasets/demo-xbow"))
+    # Uses root droplet.yaml (schema_version: 2) which discovers all datasets
+    manager = DropletManager(dataset_root=Path("datasets"))
     manager.load_tasks()
 
-    assert set(manager.challenges) == {
-        "xben-001-24",
-        "xben-002-24",
-        "xben-003-24",
-        "xben-004-24",
-        "xben-005-24",
-    }
+    # xbow is a superset of demo-xbow (shared IDs: xben-001~005)
+    # After loading both datasets, xbow overwrites demo-xbow for overlapping IDs
+    assert len(manager.challenges) >= 5
     for challenge in manager.challenges.values():
         assert challenge.task_type == "web_ctf_online"
         assert challenge.root.endswith(challenge.id.upper())

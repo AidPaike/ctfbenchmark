@@ -130,18 +130,38 @@ All tables live in a single SQLite file (`data/droplet.db` by default):
 - `cli.py`: Command-line interface using the client. Subcommands: `doctor`, `serve`, `challenges`, `events`, `report-event`, `preflight`, `start-all`, `stop-all`, `start`, `stop`, `reset`, `submit`, `hint`, `stats`, `compat-challenges`, `compat-hint`, `compat-submit`.
 - `mcp_server.py`: FastMCP server exposing platform operations as MCP tools.
 
-### Dataset Structure
+### Dataset Configuration
+
+项目根目录的 `droplet.yaml` 是主配置文件，使用简单路径列表：
+
+```yaml
+schema_version: 2
+datasets:
+  - ./datasets/xbow/challenges
+  - ./datasets/demo-xbow/challenges
+```
+
+路径相对于项目根目录解析。`DatasetLoader` 按以下顺序查找配置：
+1. 项目根目录 `droplet.yaml`（推荐）
+2. `{DROPLET_DATASET_ROOT}/droplet.yaml`（向后兼容）
+3. 自动发现（无配置文件时）
+
+### Dataset Directory Structure
 
 ```
-datasets/demo-xbow/
-  droplet.yaml          # Suite metadata: schema_version, auto_discover config
-  challenges/
+datasets/
+  xbow/challenges/
     XBEN-001-24/
-      docker-compose.yml
+      benchmark.json        # 公开元数据
+      docker-compose.yml    # 运行时配置
+      README.md             # 描述（可选）
+      app/                  # 源码
+  demo-xbow/challenges/
+    XBEN-001-24/
       ...
 ```
 
-The `droplet.yaml` `auto_discover` section tells `DatasetLoader` which adapter (`type: xbow`) and path to scan. Adapter produces `Challenge` objects with static metadata.
+每个挑战目录必须包含 `benchmark.json` 和 `docker-compose.yml`。
 
 ## Key Design Decisions
 
@@ -156,7 +176,7 @@ The `droplet.yaml` `auto_discover` section tells `DatasetLoader` which adapter (
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DROPLET_DATASET_ROOT` | `datasets` | Challenge dataset root (contains `droplet.yaml` with multi-dataset config) |
+| `DROPLET_DATASET_ROOT` | `datasets` | Challenge dataset root (config lookup: root `droplet.yaml` first, then this dir) |
 | `DROPLET_WORK_ROOT` | `data/work` | Runtime work directories |
 | `DROPLET_PUBLIC_HOST` | `127.0.0.1` | Host exposed to agents |
 | `DROPLET_DATABASE_PATH` | `data/droplet.db` | SQLite file path |
