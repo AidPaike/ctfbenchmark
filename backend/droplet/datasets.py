@@ -139,7 +139,7 @@ class DatasetLoader:
                 for challenge in adapter.discover(
                     resolved.parent, config, infer_expose=infer_expose
                 ):
-                    loaded.setdefault(challenge.id, challenge)
+                    loaded[challenge.id] = challenge
             else:
                 # resolved is a parent; look for challenges/ subdir
                 sub_path = _find_challenge_subdir(resolved)
@@ -155,7 +155,7 @@ class DatasetLoader:
                     "task_type": "web_ctf_online",
                 }
                 for challenge in adapter.discover(resolved, config, infer_expose=infer_expose):
-                    loaded.setdefault(challenge.id, challenge)
+                    loaded[challenge.id] = challenge
         return loaded
 
     def _auto_discover(
