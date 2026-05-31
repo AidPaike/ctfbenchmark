@@ -1,138 +1,133 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文件为 Claude Code 提供项目开发指引。
 
-## Project Overview
+## 项目概述
 
-Droplet is a black-box CTF benchmark platform for evaluating automated penetration-testing agents. It loads challenge metadata from datasets, spins up Docker Compose environments on demand, exposes ports to agents, records submissions, and persists challenge progress and audit events to SQLite.
+Droplet 是黑盒 CTF Benchmark 平台，用于评测自动化渗透测试 Agent。加载题目元数据 → 启动 Docker Compose 环境 → 暴露端口 → 记录提交 → 持久化到 SQLite。
 
-- **Backend**: FastAPI + SQLModel (SQLite), port `1349`
-- **Frontend**: React + Vite (single-file `main.tsx`), port `10349`
-- **SDK**: Python client (`httpx`) + CLI + MCP server in `sdk/droplet_sdk/`
-- **Default token**: `droplet_dev_admin`
-
-## Common Commands
-
-### Tests
+## 常用命令
 
 ```bash
-# All unit tests (no Docker required)
+# 单元测试
 PYTHONPATH=backend:sdk python -m pytest tests/unit/ -v
 
-# Single test file
-PYTHONPATH=backend:sdk python -m pytest tests/unit/test_persistence.py -v
+# 单个测试
+PYTHONPATH=backend:sdk python -m pytest tests/unit/test_persistence.py::test_fn -v
 
-# Single test
-PYTHONPATH=backend:sdk python -m pytest tests/unit/test_persistence.py::test_persist_progress_writes_to_db -v
-
-# Docker/API integration smoke test (requires Docker)
-DROPLET_RUN_DOCKER_E2E=1 PYTHONPATH=backend:sdk python -m pytest tests/integration/test_api_docker_e2e.py -v -s
-```
-
-### Lint / Format
-
-```bash
+# Lint / Format
 ruff check backend/ sdk/ tests/
 ruff format backend/ sdk/ tests/
-```
 
-### Start / Stop Platform
-
-```bash
-# Full production-like start (backend + frontend + auto-start challenges)
+# 一键启动（含镜像预热）
 ./scripts/platform/start.sh
 
-# Development: backend only, no auto-start (fastest startup)
+# 开发模式：后端不自动启动题目
 DROPLET_PRESTART_CHALLENGES=0 ./scripts/dev/dev-backend.sh
 
-# Development: frontend only
-./scripts/dev/dev-frontend.sh
-
-# Pre-start challenges after backend is up
+# 预启动题目
 ./scripts/ops/prestart-challenges.sh
 
-# Stop everything
+# 停止
 ./scripts/platform/stop.sh
 
-# Stop only challenge containers
-./scripts/ops/stop-challenges.sh
-
-# Clean runtime work dirs
-./scripts/ops/clean-runtime.sh
-
-# Diagnose environment
-./scripts/ops/doctor.sh
-```
-
-### SDK CLI
-
-```bash
+# SDK CLI
 PYTHONPATH=backend:sdk python -m droplet_sdk.cli challenges
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli stats
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli --timeout 600 start-all
 PYTHONPATH=backend:sdk python -m droplet_sdk.cli submit xben-001-24 'FLAG{...}'
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli report-event xben-001-24 agent_event "curl /login"
+
+# 新题预处理
+python -m datasets.preprocessor --raw-path /path/to/raw --output-dir datasets/drafts/my-suite --challenge-id RAW-001
 ```
 
-### Dataset Preprocessor
+## 架构
 
-```bash
-python -m datasets.preprocessor \
-  --raw-path /path/to/raw/challenge \
-  --output-dir datasets/drafts/my-suite \
-  --challenge-id RAW-001
-```
+### 后端 `backend/droplet/`
 
-## Architecture
-
-### Backend (`backend/droplet/`)
-
-| File | Role |
+| 文件 | 职责 |
 |---|---|
-| `app.py` | FastAPI entry. **Module-level singleton** `DropletManager` shared across all requests. Startup sequence: `setup_logging()` → `init_db()` → `migrate_jsonl_to_sqlite()` → `manager.load_tasks()`. |
-| `manager.py` | Core orchestrator. Challenge lifecycle: discover → start (async bg thread) → health check → stop → score → cleanup. Copies templates from `datasets/` to `data/work/challenges/<id>/` before running Docker Compose; proxy injection and port rewriting mutate only the copy. |
-| `models.py` | `Challenge` is a single Pydantic model with three field groups: **static metadata** (from dataset, never changes), **runtime state** (ephemeral, not persisted), and **submission state** (`solved`, `hint_viewed`, `submission_count`, `score`). `public()` strips sensitive fields before sending to the client. |
-| `database.py` | SQLite + SQLModel. Database file anchored to repo root via `_PROJECT_ROOT`. `get_engine()` is cached per path; `reset_engine()` clears it. `reset_session_cache()` clears the cached `session_id`. |
-| `events.py` | `EventStore` persists audit events. `record()` tags events with the current `session_id`; `list()` filters by active session only. |
-| `datasets.py` | Pluggable dataset loader. Adapters register by `dataset_type` in a dict. Current adapter: XBOW. |
-| `logging_config.py` | `setup_logging()` configures root logger with `ColorFormatter` (terminal) + `SQLiteLogHandler` (DB). Calls `init_db()` internally before creating the DB handler so `system_logs` table exists on first startup. |
+| `app.py` | FastAPI 入口。模块级单例 `DropletManager`。启动流程：`setup_logging()` → `init_db()` → `migrate_jsonl_to_sqlite()` → `manager.load_tasks()` → 后台线程执行镜像预热 + 预启动。 |
+| `manager.py` | 核心编排。生命周期：发现 → 预热镜像 → 启动（异步） → 健康检查 → 停止 → 清理。模板从 `datasets/` 复制到 `data/work/challenges/<id>/` 再运行 Docker Compose。 |
+| `models.py` | `Challenge` 模型，三组字段：静态元数据、运行时状态、提交状态。`public()` 脱敏。 |
+| `database.py` | SQLite + SQLModel。`get_engine()` 按路径缓存，`reset_engine()` 清除。 |
+| `events.py` | `EventStore` 审计事件。`record()` 标记 `session_id`，`list()` 按活跃 session 过滤。 |
+| `datasets.py` | 可插拔数据集加载器。适配器按 `dataset_type` 注册。支持 `droplet.yaml` 配置和自动发现。 |
+| `logging_config.py` | `setup_logging()` 配置 `ColorFormatter`（终端）+ `SQLiteLogHandler`（DB）。 |
 
-### Database Schema
+### 前端 `frontend/src/`
 
-All tables live in a single SQLite file (`data/droplet.db` by default):
+- `main.tsx`：单文件 React 应用，无路由，无状态库。3s 轮询 `/api/challenges`。
+- `styles.css`：全部样式，`data-theme` 切换明暗主题。
 
-| Table | Purpose |
+### SDK `sdk/droplet_sdk/`
+
+- `client.py`：`DropletClient`，httpx 封装。
+- `cli.py`：argparse 子命令。
+- `mcp_server.py`：FastMCP 工具集。
+
+### 数据库表
+
+SQLite 文件：`data/droplet.db`
+
+| 表 | 用途 |
 |---|---|
-| `events` | Audit events. Has `session_id` for logical reset isolation. |
-| `system_logs` | Structured application logs from `SQLiteLogHandler`. |
-| `challenge_progress` | Per-challenge submission state (`solved`, `score`, `hint_penalty`, etc.) per session. Unique on `(challenge_id, session_id)`. |
-| `submissions` | Every answer attempt with `correct`, `score_before`, `score_after`. |
-| `app_state` | Key-value store. Key `current_session_id` tracks the active session. |
+| `events` | 审计事件，带 `session_id` |
+| `system_logs` | 结构化应用日志 |
+| `challenge_progress` | 每题提交状态（`solved`、`score` 等），按 session 隔离 |
+| `submissions` | 每次提交记录 |
+| `app_state` | KV 存储，`current_session_id` 跟踪活跃 session |
 
-### Session-Based Logical Reset
+### Session 逻辑重置
 
-- `AppState` stores `current_session_id` (default 1).
-- `ChallengeProgress`, `Submission`, and `Event` all have a `session_id` column.
-- `reset_all_challenges()` calls `increment_session_id()` → old data stays in the database but is hidden from all queries.
-- `reset_challenge()` resets progress for a single challenge in the current session.
+`AppState` 存储 `current_session_id`。`reset_all_challenges()` 递增 session ID，旧数据保留但对查询不可见。
 
-**Important**: `SQLModel.metadata.create_all()` only **creates** tables; it never alters existing ones. If you add a column to a model, existing databases will crash on startup. During development, delete the old DB (`rm data/droplet.db`) and let `init_db()` recreate it. For production, write explicit `ALTER TABLE` migration scripts.
+**注意**：`SQLModel.metadata.create_all()` 只建表不改表。新增字段需删库重建（开发）或写 `ALTER TABLE` 迁移（生产）。
 
-### Frontend (`frontend/src/`)
+## 关键设计
 
-- `main.tsx`: Single-file React app (no router, no state library). Polls `/api/challenges` every 3s. Activity rail queries `/api/challenges/{id}/events`. Global reset-all button with confirmation dialog.
-- `styles.css`: All styling in one file. Light/dark themes via `data-theme` attribute on `<html>`. Uses CSS variables for colors.
-- `vite.config.ts`: Standard Vite + React setup. Dev server binds to `127.0.0.1:10349`.
+- **端口分配**：Docker 通过 `"0:container_port"` 随机分配宿主端口，`docker compose port` 解析实际端口。
+- **题目隔离**：`datasets/` 模板不被修改。每题复制到 `data/work/` 再运行。代理注入和端口改写只动副本。
+- **并发限制**：`DEFAULT_MAX_CONCURRENT_ENVIRONMENTS = 2`。
+- **看门狗**：后台线程 10s 轮询，检测容器外部杀死或服务不可达。
+- **镜像预热**：`prefetch_images()` 后台线程执行 `docker compose pull`，只拉镜像不启动容器。
+- **认证**：`require_auth()` 接受 `droplet_dev_admin` 或 `droplet_` 前缀 token。
 
-### SDK (`sdk/droplet_sdk/`)
+## 环境变量
 
-- `client.py`: `DropletClient` dataclass wrapping `httpx.Client`. Bearer auth, retry logic, timeout config.
-- `cli.py`: Command-line interface using the client. Subcommands: `doctor`, `serve`, `challenges`, `events`, `report-event`, `preflight`, `start-all`, `stop-all`, `start`, `stop`, `reset`, `submit`, `hint`, `stats`, `compat-challenges`, `compat-hint`, `compat-submit`.
-- `mcp_server.py`: FastMCP server exposing platform operations as MCP tools.
+| 变量 | 默认值 | 用途 |
+|---|---|---|
+| `DROPLET_DATASET_ROOT` | `datasets` | 数据集根目录 |
+| `DROPLET_WORK_ROOT` | `data/work` | 运行态目录 |
+| `DROPLET_PUBLIC_HOST` | `127.0.0.1` | 暴露给 Agent 的主机 |
+| `DROPLET_DATABASE_PATH` | `data/droplet.db` | SQLite 路径 |
+| `DROPLET_PRESTART_CHALLENGES` | `1` | 启动时自动开始所有题目 |
+| `DROPLET_PREFETCH_IMAGES` | `1` | 启动时预热 Docker 镜像 |
+| `DROPLET_DOCKER_PROXY` | — | Docker build 代理 |
+| `DROPLET_DOCKER_NO_PROXY` | — | 代理绕过列表 |
+| `DROPLET_TARGET_READY_TIMEOUT` | `90` | 端口健康检查超时（秒）|
+| `DROPLET_COMPOSE_TIMEOUT_SECONDS` | `300` | `docker compose up` 超时 |
+| `DROPLET_MAX_CONCURRENT_ENVIRONMENTS` | `2` | 最大并发运行题目数 |
+| `DROPLET_FORCE_REBUILD` | `0` | 强制 `--build` |
 
-### Dataset Configuration
+## 分支模型
 
-项目根目录的 `droplet.yaml` 是主配置文件，使用简单路径列表：
+双主干：
+
+- `develop`：默认分支，功能/修复 PR squash 合并到这里
+- `master`：稳定版本，只有 `release/*` 和 `hotfix/*` 合并
+
+命名：`feat/<描述>`、`fix/<描述>`、`release/<版本>`、`hotfix/<描述>`
+
+## 测试隔离
+
+`tests/conftest.py` 的 `isolated_database` fixture（autouse=True）：
+
+1. `tmp_path` 设置独立 `DROPLET_DATABASE_PATH`
+2. `reset_engine()` 清除 SQLAlchemy 缓存
+3. `reset_session_cache()` 清除 session ID 缓存
+
+## 数据集配置
+
+`droplet.yaml`（项目根目录）：
 
 ```yaml
 schema_version: 2
@@ -141,12 +136,9 @@ datasets:
   - ./datasets/demo-xbow/challenges
 ```
 
-路径相对于项目根目录解析。`DatasetLoader` 按以下顺序查找配置：
-1. 项目根目录 `droplet.yaml`（推荐）
-2. `{DROPLET_DATASET_ROOT}/droplet.yaml`（向后兼容）
-3. 自动发现（无配置文件时）
+查找顺序：根目录 `droplet.yaml` → `{DROPLET_DATASET_ROOT}/droplet.yaml` → 自动发现。
 
-### Dataset Directory Structure
+目录结构：
 
 ```
 datasets/
@@ -156,56 +148,4 @@ datasets/
       docker-compose.yml    # 运行时配置
       README.md             # 描述（可选）
       app/                  # 源码
-  demo-xbow/challenges/
-    XBEN-001-24/
-      ...
 ```
-
-每个挑战目录必须包含 `benchmark.json` 和 `docker-compose.yml`。
-
-## Key Design Decisions
-
-- **Port allocation**: Docker picks host ports via `"0:container_port"` in docker-compose.yml. After `docker compose up`, actual ports are resolved with `docker compose port <service> <container_port>`. This eliminated the previous TOCTOU race where Python bound a socket, closed it, and Docker claimed the same port a moment later.
-- **Challenge isolation**: Templates under `datasets/` are never mutated. Each challenge is copied to `data/work/challenges/<id>/` before Docker Compose runs. Proxy injection and port rewriting only touch the copy.
-- **Concurrency limit**: `DEFAULT_MAX_CONCURRENT_ENVIRONMENTS = 2`. `start_challenge()` rejects if the active count (running + starting + stopping) is already at the limit.
-- **Watchdog**: A background daemon thread (`_watchdog_loop`) polls every 10s. Detects containers killed externally AND services that are running but no longer reachable (crashed process inside container). Marks unreachable endpoints as `status=error`.
-- **Auth**: `require_auth()` in `app.py` accepts the hardcoded token `droplet_dev_admin` OR any token starting with `droplet_`. No user management.
-- **Logging order**: `setup_logging()` now calls `init_db()` internally before creating `SQLiteLogHandler`. This fixes the first-startup bug where early logs were lost because `system_logs` did not exist yet.
-
-## Environment Variables
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `DROPLET_DATASET_ROOT` | `datasets` | Challenge dataset root (config lookup: root `droplet.yaml` first, then this dir) |
-| `DROPLET_WORK_ROOT` | `data/work` | Runtime work directories |
-| `DROPLET_PUBLIC_HOST` | `127.0.0.1` | Host exposed to agents |
-| `DROPLET_DATABASE_PATH` | `data/droplet.db` | SQLite file path |
-| `DROPLET_PRESTART_CHALLENGES` | `1` | Auto-start all on backend startup |
-| `DROPLET_PREFETCH_IMAGES` | `1` | Pre-pull Docker images before starting challenges |
-| `DROPLET_DOCKER_PROXY` | — | HTTP proxy injected into Docker builds |
-| `DROPLET_DOCKER_NO_PROXY` | — | Proxy bypass list for Docker builds |
-| `DROPLET_TARGET_READY_TIMEOUT` | `90` | Seconds to wait for endpoint health |
-| `DROPLET_COMPOSE_TIMEOUT_SECONDS` | `300` | Seconds before `docker compose up` aborts |
-| `DROPLET_MAX_CONCURRENT_ENVIRONMENTS` | `2` | Max simultaneous running challenges |
-| `DROPLET_FORCE_REBUILD` | `0` | Pass `--build` to `docker compose up` |
-
-## Branch Workflow
-
-This project uses a lightweight dual-trunk model (documented in `CONTRIBUTING.md`):
-
-- `develop` — default branch. All feature/fix PRs squash-merge here.
-- `master` — stable, production-ready. Only `release/*` and `hotfix/*` merge here.
-- `feat/<kebab-desc>` from `develop` → PR to `develop` → squash merge → delete branch.
-- `fix/<kebab-desc>` from `develop` → PR to `develop` → squash merge → delete branch.
-- `release/<semver>` from `develop` → PR to `master` + `develop` → tag on `master` → delete branch.
-- `hotfix/<kebab-desc>` from `master` → PR to `master` + `develop` → tag on `master` → delete branch.
-
-## Test Isolation
-
-`tests/conftest.py` provides an `isolated_database` fixture (autouse=True) that:
-
-1. Sets a unique `DROPLET_DATABASE_PATH` per test via `tmp_path`
-2. Calls `reset_engine()` to clear the SQLAlchemy engine cache
-3. Calls `reset_session_cache()` to clear the cached `session_id`
-
-This ensures tests never share DB state or session state. The `EventStore` internally calls `init_db()` on instantiation, so tables exist even for tests that do not explicitly call it.

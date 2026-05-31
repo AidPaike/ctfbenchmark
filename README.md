@@ -1,34 +1,22 @@
 # Droplet
 
-Droplet 是一个用于评测自动化渗透测试 Agent 的黑盒 CTF Benchmark 平台。平台负责启动题目服务、暴露端口、展示公开元数据、记录 Agent 提交；Agent 只通过端口访问题目，用自己的工具链做题。
+Droplet 是一个用于评测自动化渗透测试 Agent 的黑盒 CTF Benchmark 平台。
 
-当前 XBOW 题目遵循原题机制：Docker 启动后题目自己部署数据库和 flag。Droplet 不读取 `.env`、源码或数据库中的真实 flag，也不会为了判题去扫描题目文件。除非后续某个数据集显式配置 checker / judge adapter，否则提交接口只记录提交，返回 `judged: false`。
+- 后端：FastAPI + SQLite，端口 `1349`
+- 前端：React + Vite，端口 `10349`
+- SDK：Python 客户端 + CLI + MCP Server
+- 默认 Token：`droplet_dev_admin`
 
-当前版本是单用户平台：没有多用户隔离，也没有同一道题的多副本 attempt。全局“重置进度”内部使用 reset epoch 隐藏旧进度和旧活动链，但这不是对外的用户 session 模型。
+平台负责启动题目 Docker 环境、暴露端口、记录提交；Agent 只通过端口访问题目。
 
-当前 demo 内置 5 道 XBOW 题目：
-
-- 数据集目录：`datasets/demo-xbow`
-- 题目 ID：`xben-001-24` 到 `xben-005-24`
-- 后端端口：`1349`
-- 前端端口：`10349`
-- 默认 API Token：`droplet_dev_admin`
-
-## 0. 进入项目目录
+## 安装
 
 ```bash
 cd /home/fanzhenye/Desktop/ctfbenchmark
-```
-
-## 1. 安装依赖
-
-```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-cd frontend
-npm install
-cd ..
+cd frontend && npm install && cd ..
 ```
 
 确认 Docker 可用：
@@ -38,10 +26,9 @@ docker info
 docker compose version
 ```
 
-## 2. 配置 Docker 代理
+## 配置
 
-当前默认代理是 `192.168.3.67:7890`。后端启动脚本会把这个代理注入到题目的运行态副本，不会修改 `datasets/` 下的原题文件。
-默认 `NO_PROXY` 包含 `pypi.tuna.tsinghua.edu.cn`：部分老题目需要代理访问 Debian archive，但 `pip` 访问清华源时需要绕过代理，否则可能出现 `ProxyError` 或 TLS 超时。
+### Docker 代理（可选）
 
 如果 Docker build 需要代理：
 
@@ -49,178 +36,66 @@ docker compose version
 export DROPLET_DOCKER_PROXY=http://192.168.3.67:7890
 ```
 
-如果你需要追加或覆盖 Docker build 的绕过列表：
-
-```bash
-export DROPLET_DOCKER_NO_PROXY=127.0.0.1,localhost,::1,host.docker.internal,pypi.tuna.tsinghua.edu.cn
-```
-
-如果要完全关闭 Droplet 的 Docker build 代理注入：
+默认 `NO_PROXY` 已包含 `pypi.tuna.tsinghua.edu.cn`，避免 pip 走代理出错。如需关闭代理注入：
 
 ```bash
 export DROPLET_DOCKER_PROXY=
 ```
 
-如果 Docker daemon 拉基础镜像失败，再执行：
+### 数据集
 
-```bash
-./scripts/setup/configure-docker-daemon-proxy.sh
+主配置文件 `droplet.yaml`（项目根目录）：
+
+```yaml
+schema_version: 2
+datasets:
+  - ./datasets/xbow/challenges
+  - ./datasets/demo-xbow/challenges
 ```
 
-## 3. 启动后端
+每个挑战目录必须包含 `benchmark.json` 和 `docker-compose.yml`。
 
-推荐先用“调试模式”启动后端：只加载题目元数据，不在后端 startup 阶段自动启动题目。这样后端会很快起来，题目启动错误也可以通过单独命令排查。
+## 启动
 
-终端 1：
+### 一键启动（推荐）
 
 ```bash
+./scripts/platform/start.sh
+```
+
+自动完成：镜像预热 → 启动题目 → 启动后端 → 启动前端。终端顶部显示预热进度。
+
+### 开发模式
+
+分步启动，适合调试：
+
+```bash
+# 终端 1：启动后端（不自动启动题目）
 DROPLET_PRESTART_CHALLENGES=0 ./scripts/dev/dev-backend.sh
-```
 
-看到下面类似输出表示后端已启动：
-
-```text
-Uvicorn running on http://127.0.0.1:1349
-Application startup complete
-```
-
-检查后端：
-
-```bash
-curl --noproxy 127.0.0.1 -s http://127.0.0.1:1349/api/health
-```
-
-## 4. 预启动并检查题目
-
-终端 2：
-
-```bash
+# 终端 2：预启动题目
 ./scripts/ops/prestart-challenges.sh
-```
 
-这个命令会：
-
-- 调用后端的 `POST /api/challenges/start-all`
-- 在并发上限内启动题目的 Docker Compose 服务
-- 检查每道题是否为 `running`
-- 检查每道题是否有端口
-- 有任何题失败时返回非 0
-
-默认最多同时运行 2 个题目环境。如果你要一次性预启动 5 道 demo 题，需要在启动后端前设置：
-
-```bash
-DROPLET_PRESTART_CHALLENGES=0 DROPLET_MAX_CONCURRENT_ENVIRONMENTS=5 ./scripts/dev/dev-backend.sh
-```
-
-当被检查的题目数量不超过并发上限时，成功输出类似：
-
-```json
-{
-  "ok": true,
-  "ready_count": 2,
-  "failed_count": 0
-}
-```
-
-失败时会看到类似：
-
-```json
-{
-  "ok": false,
-  "failed": [
-    {
-      "id": "xben-004-24",
-      "status": "error",
-      "target_url": null,
-      "ports": [],
-      "error_message": "Docker Compose timed out ..."
-    }
-  ]
-}
-```
-
-这时不要让 Agent 开始评测。先根据 `failed[*].error_message` 排查 Dockerfile、网络、代理、基础镜像或题目配置。修完后重新执行：
-
-```bash
-./scripts/ops/prestart-challenges.sh
-```
-
-只检查当前状态、不重新启动题目：
-
-```bash
-./scripts/ops/prestart-challenges.sh --no-start
-```
-
-只启动/检查指定题目：
-
-```bash
-./scripts/ops/prestart-challenges.sh --challenge-id xben-001-24
-```
-
-如果某道题构建很慢，可以调大超时。注意：`DROPLET_COMPOSE_TIMEOUT_SECONDS` 要在启动后端时设置。
-
-终端 1：
-
-```bash
-DROPLET_PRESTART_CHALLENGES=0 DROPLET_COMPOSE_TIMEOUT_SECONDS=300 ./scripts/dev/dev-backend.sh
-```
-
-终端 2：
-
-```bash
-DROPLET_CLIENT_TIMEOUT=900 ./scripts/ops/prestart-challenges.sh
-```
-
-默认启动题目使用 `docker compose up -d`，与参考项目一致：已有镜像时不会每次强制 rebuild，缺失镜像时 Docker Compose 会按需构建。需要强制重新构建题目镜像时，再在启动后端前设置：
-
-```bash
-DROPLET_FORCE_REBUILD=1 DROPLET_PRESTART_CHALLENGES=0 ./scripts/dev/dev-backend.sh
-```
-
-## 5. 启动前端
-
-只有题目预启动检查通过后，再启动前端给用户或你自己使用。
-
-终端 3：
-
-```bash
+# 终端 3：启动前端
 ./scripts/dev/dev-frontend.sh
 ```
 
-打开：
+### 停止
 
-```text
-http://127.0.0.1:10349
+```bash
+./scripts/platform/stop.sh          # 停止全部
+./scripts/ops/stop-challenges.sh    # 只停题目容器
+./scripts/ops/clean-runtime.sh      # 清理运行态目录
 ```
 
-## 6. Agent 接入方式
+## Agent 接入
 
-Agent 推荐使用兼容接口，流程非常简单：
-
-1. 获取题目列表和端口
-2. 通过端口访问题目服务
-3. 提交 Agent 找到的 flag
-
-获取题目：
+获取题目和端口：
 
 ```bash
 curl --noproxy 127.0.0.1 -s \
   -H "Authorization: Bearer droplet_dev_admin" \
   http://127.0.0.1:1349/api/v1/challenges
-```
-
-返回里重点看：
-
-```json
-{
-  "challenge_code": "xben-001-24",
-  "status": "running",
-  "target_url": "http://127.0.0.1:59393",
-  "target_info": {
-    "ip": "127.0.0.1",
-    "port": [59393]
-  }
-}
 ```
 
 提交 flag：
@@ -233,158 +108,59 @@ curl --noproxy 127.0.0.1 -s \
   http://127.0.0.1:1349/api/v1/answer
 ```
 
-当前 XBOW demo 的提交响应示例：
+当前 XBOW demo 返回 `judged: false`，平台只记录提交，不判题。
+
+## MCP 接入
+
+安装：
+
+```bash
+pip install -e ".[mcp]"
+```
+
+Claude Code / Cursor / Cline 配置：
 
 ```json
 {
-  "correct": false,
-  "judged": false,
-  "accepted": true,
-  "earned_points": 0,
-  "is_solved": false,
-  "message": "submission recorded; no flag judge is configured"
+  "mcpServers": {
+    "droplet": {
+      "command": "python",
+      "args": ["-m", "droplet_sdk.mcp_server"],
+      "env": {
+        "DROPLET_BASE_URL": "http://127.0.0.1:1349",
+        "DROPLET_API_TOKEN": "droplet_dev_admin"
+      }
+    }
+  }
 }
 ```
 
-这里的 `accepted: true` 表示平台已记录提交，不表示 flag 正确。`judged: false` 表示当前题目没有平台侧判题器。
+可用工具：`list_challenges`、`start_all_challenges`、`stop_all_challenges`、`start_challenge`、`stop_challenge`、`reset_challenge`、`submit_answer`、`view_hint`、`get_stats`、`list_events`、`report_event`、`prefetch_images`。
 
-## 7. 常用管理命令
-
-列出题目：
+## 常用命令
 
 ```bash
+# 列出题目
 PYTHONPATH=backend:sdk python -m droplet_sdk.cli challenges
-```
 
-启动全部题目：
-
-```bash
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli --timeout 600 start-all
-```
-
-停止全部题目：
-
-```bash
-./scripts/ops/stop-challenges.sh
-```
-
-启动单题：
-
-```bash
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli --timeout 600 start xben-001-24
-```
-
-停止单题：
-
-```bash
+# 启动/停止单题
+PYTHONPATH=backend:sdk python -m droplet_sdk.cli start xben-001-24
 PYTHONPATH=backend:sdk python -m droplet_sdk.cli stop xben-001-24
-```
 
-提交答案：
-
-```bash
+# 提交答案
 PYTHONPATH=backend:sdk python -m droplet_sdk.cli submit xben-001-24 'FLAG{...}'
-```
 
-查看统计：
+# 预热镜像
+PYTHONPATH=backend:sdk python -m droplet_sdk.cli prefetch
 
-```bash
+# 查看统计
 PYTHONPATH=backend:sdk python -m droplet_sdk.cli stats
-```
 
-查看平台活动链事件：
-
-```bash
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli events --challenge-id xben-001-24
-```
-
-Agent 主动上报一条可审计事件：
-
-```bash
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli report-event xben-001-24 agent_event "curl /login"
-```
-
-诊断本机环境：
-
-```bash
+# 诊断环境
 ./scripts/ops/doctor.sh
 ```
 
-## 8. 一键开发模式
-
-如果 Docker 镜像已经构建稳定，也可以直接启动后端并让它自动预启动题目：
-
-```bash
-./scripts/dev/dev-backend.sh
-```
-
-这个模式适合日常使用；如果题目还在调试，建议用第 3 步的 `DROPLET_PRESTART_CHALLENGES=0` 模式。
-
-## 9. 停止项目
-
-先停止题目容器：
-
-```bash
-./scripts/ops/stop-challenges.sh
-```
-
-然后在后端和前端终端按 `Ctrl-C`。
-
-如果需要手动清理运行态目录：
-
-```bash
-./scripts/ops/clean-runtime.sh
-```
-
-## 10. 测试
-
-普通单元测试：
-
-```bash
-PYTHONPATH=backend:sdk python3 -m pytest -q
-```
-
-真实 Docker/API 烟测：
-
-```bash
-DROPLET_RUN_DOCKER_E2E=1 PYTHONPATH=backend:sdk python3 -m pytest tests/integration/test_api_docker_e2e.py -q -s
-```
-
-前端构建：
-
-```bash
-cd frontend
-npm run build
-cd ..
-```
-
-## 11. 目录说明
-
-题目模板只保留一份：
-
-```text
-datasets/demo-xbow/challenges/XBEN-001-24/
-```
-
-启动题目时生成运行态副本：
-
-```text
-data/work/challenges/xben-001-24/
-```
-
-停止题目后，运行态目录会被清理。旧版 `data/work/attempts/` 会在后端启动时自动删除。
-
-平台状态和事件写入 SQLite：
-
-```text
-data/droplet.db
-```
-
-`logs/droplet-events.jsonl` 只是旧版事件日志的迁移来源，新事件不再写入 JSONL。前端右侧“LLM / Agent 活动链”通过 API 读取 SQLite 中的结构化事件。外部黑盒 Agent 的内部 LLM 轨迹不会被平台自动捕获；如果需要展示关键步骤，Agent 可以调用 `report-event` 或 `POST /api/challenges/{id}/events` 主动上报摘要。
-
-## 12. 新题预处理
-
-可以用预处理工具把收集来的 raw challenge 先转换成 Droplet/XBOW 风格 draft：
+## 新题预处理
 
 ```bash
 python -m datasets.preprocessor \
@@ -393,6 +169,27 @@ python -m datasets.preprocessor \
   --challenge-id RAW-001
 ```
 
-输出会包含 `droplet.yaml`、`benchmark.json`、`benchmark.yaml`、README 草稿、题目目录和 compose 复制策略说明。没有 LLM 配置时也会生成 draft，并在公开 metadata 中标记 `needs_review: true`。工具不会把 `.env`、flag-like 文件或 secret 值写进公开 metadata；这些内容只作为运行时原题文件保留。
+生成 `benchmark.json`、`docker-compose.yml`、README 草稿等。公开 metadata 默认带 `needs_review: true`，需人工确认后入库。
 
-详细说明见 [docs/dataset-preprocessor.md](docs/dataset-preprocessor.md)。
+## 测试
+
+```bash
+# 单元测试
+PYTHONPATH=backend:sdk python -m pytest tests/unit/ -v
+
+# Docker 集成测试（需要 Docker）
+DROPLET_RUN_DOCKER_E2E=1 PYTHONPATH=backend:sdk python -m pytest tests/integration/test_api_docker_e2e.py -v -s
+```
+
+## 目录结构
+
+```
+datasets/xbow/challenges/      # XBOW 题目模板
+datasets/demo-xbow/challenges/ # Demo 题目模板
+data/work/challenges/          # 运行态副本（启动时生成，停止后清理）
+data/droplet.db                # SQLite 数据库
+backend/droplet/               # 后端代码
+frontend/src/                  # 前端代码（单文件 main.tsx）
+sdk/droplet_sdk/               # SDK（client + CLI + MCP）
+scripts/                       # 启动/停止/运维脚本
+```
