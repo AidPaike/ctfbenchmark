@@ -10,7 +10,6 @@ This test verifies:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -123,15 +122,13 @@ class TestChallengeDiscovery:
         assert len(groups) > 0, "No challenge groups formed"
         for group_id, group_challenges in groups.items():
             assert group_id != "unknown-dataset", (
-                f"Some challenges have no dataset_id and fall into 'unknown-dataset'"
+                "Some challenges have no dataset_id and fall into 'unknown-dataset'"
             )
             assert len(group_challenges) > 0
 
     def test_status_values_are_valid(self, display_client) -> None:
         """Status must be one of the values the frontend can render."""
-        valid_statuses = {
-            "not_started", "starting", "running", "stopping", "solved", "error"
-        }
+        valid_statuses = {"not_started", "starting", "running", "stopping", "solved", "error"}
         client, _manager = display_client
         challenges = client.get("/api/challenges", headers=AUTH).json()
 
@@ -146,7 +143,7 @@ class TestChallengeDiscovery:
         challenges = client.get("/api/challenges", headers=AUTH).json()
 
         for challenge in challenges:
-            assert challenge["id"], f"Challenge missing id"
+            assert challenge["id"], "Challenge missing id"
             assert challenge["title"], f"Challenge {challenge['id']} missing title"
 
     def test_no_extra_fields_that_could_confuse_frontend(self, display_client) -> None:

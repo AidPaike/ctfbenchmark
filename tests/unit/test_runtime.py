@@ -52,7 +52,9 @@ def test_start_compose_uses_absolute_compose_file_with_challenge_cwd(tmp_path, m
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
     ready_checks = []
-    monkeypatch.setattr(manager, "_wait_for_endpoints", lambda endpoints: ready_checks.extend(endpoints))
+    monkeypatch.setattr(
+        manager, "_wait_for_endpoints", lambda endpoints: ready_checks.extend(endpoints)
+    )
     challenge = _make_challenge(template)
 
     work_dir = tmp_path / "work" / "challenges" / "demo"
@@ -66,7 +68,16 @@ def test_start_compose_uses_absolute_compose_file_with_challenge_cwd(tmp_path, m
     assert "--build" not in command
     assert Path(kwargs["cwd"]) == tmp_path / "work" / "challenges" / "demo"
     assert result["target_url"] == "http://127.0.0.1:34567"
-    assert ready_checks == [{"type": "http", "label": "web", "url": "http://127.0.0.1:34567", "host": "127.0.0.1", "port": 34567, "service": "web"}]
+    assert ready_checks == [
+        {
+            "type": "http",
+            "label": "web",
+            "url": "http://127.0.0.1:34567",
+            "host": "127.0.0.1",
+            "port": 34567,
+            "service": "web",
+        }
+    ]
 
 
 def test_start_compose_injects_docker_proxy_into_runtime_copy_only(tmp_path, monkeypatch) -> None:
@@ -99,7 +110,11 @@ def test_start_compose_injects_docker_proxy_into_runtime_copy_only(tmp_path, mon
 
     monkeypatch.setenv("DROPLET_DOCKER_PROXY", "192.168.3.67:7890")
     monkeypatch.setenv("DROPLET_DOCKER_NO_PROXY", "localhost,127.0.0.1")
-    monkeypatch.setattr(DropletManager, "_resolve_ports", lambda _s, _p, exposed, _e: [{**item, "host_port": 34567} for item in exposed])
+    monkeypatch.setattr(
+        DropletManager,
+        "_resolve_ports",
+        lambda _s, _p, exposed, _e: [{**item, "host_port": 34567} for item in exposed],
+    )
     monkeypatch.setattr(manager_module.subprocess, "run", fake_run)
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
@@ -145,7 +160,11 @@ def test_start_compose_can_force_rebuild_with_env_var(tmp_path, monkeypatch) -> 
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
     monkeypatch.setenv("DROPLET_FORCE_REBUILD", "1")
-    monkeypatch.setattr(DropletManager, "_resolve_ports", lambda _s, _p, exposed, _e: [{**item, "host_port": 34567} for item in exposed])
+    monkeypatch.setattr(
+        DropletManager,
+        "_resolve_ports",
+        lambda _s, _p, exposed, _e: [{**item, "host_port": 34567} for item in exposed],
+    )
     monkeypatch.setattr(manager_module.subprocess, "run", fake_run)
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
@@ -184,7 +203,11 @@ def test_start_compose_strips_stale_proxy_when_proxy_is_disabled(tmp_path, monke
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
     monkeypatch.delenv("DROPLET_DOCKER_PROXY", raising=False)
-    monkeypatch.setattr(DropletManager, "_resolve_ports", lambda _s, _p, exposed, _e: [{**item, "host_port": 34567} for item in exposed])
+    monkeypatch.setattr(
+        DropletManager,
+        "_resolve_ports",
+        lambda _s, _p, exposed, _e: [{**item, "host_port": 34567} for item in exposed],
+    )
     monkeypatch.setattr(manager_module.subprocess, "run", fake_run)
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
@@ -211,7 +234,9 @@ def test_start_compose_strips_stale_proxy_when_proxy_is_disabled(tmp_path, monke
     assert "stale.proxy" in (app / "Dockerfile").read_text(encoding="utf-8")
 
 
-def test_docker_no_proxy_preserves_user_entries_and_adds_platform_defaults(tmp_path, monkeypatch) -> None:
+def test_docker_no_proxy_preserves_user_entries_and_adds_platform_defaults(
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setenv("DROPLET_DOCKER_NO_PROXY", "custom.internal,localhost")
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
@@ -298,7 +323,13 @@ def test_resolve_ports_updates_host_ports_from_docker(monkeypatch) -> None:
     manager = DropletManager(dataset_root=Path("."), work_root=Path("."))
     exposed = [
         {"name": "web", "protocol": "http", "service": "web", "container_port": 80, "host_port": 0},
-        {"name": "api", "protocol": "tcp", "service": "api", "container_port": 5000, "host_port": 0},
+        {
+            "name": "api",
+            "protocol": "tcp",
+            "service": "api",
+            "container_port": 5000,
+            "host_port": 0,
+        },
     ]
 
     def fake_query(project, service, container_port, docker_env):
@@ -328,9 +359,7 @@ def test_wait_for_endpoints_uses_exponential_backoff(monkeypatch) -> None:
 
     monkeypatch.setattr(manager_module, "_endpoint_ready", flaky_ready)
 
-    manager._wait_for_endpoints(
-        [{"type": "tcp", "host": "127.0.0.1", "port": 12345}]
-    )
+    manager._wait_for_endpoints([{"type": "tcp", "host": "127.0.0.1", "port": 12345}])
 
     # First delay = 0.25s, second delay = 0.5s (exponential)
     assert sleeps == [0.25, 0.5]
@@ -348,7 +377,15 @@ def test_watchdog_sets_error_when_endpoint_unreachable(monkeypatch) -> None:
         difficulty="easy",
         root=str(Path(".")),
         compose_path=str(Path(".")),
-        expose=[{"name": "web", "protocol": "http", "service": "web", "container_port": 80, "host_port": 12345}],
+        expose=[
+            {
+                "name": "web",
+                "protocol": "http",
+                "service": "web",
+                "container_port": 80,
+                "host_port": 12345,
+            }
+        ],
         status="running",
         target_url="http://127.0.0.1:12345",
         ports=[12345],
@@ -367,7 +404,7 @@ def test_watchdog_sets_error_when_endpoint_unreachable(monkeypatch) -> None:
 
 
 def test_compose_ps_json_parser_accepts_multi_container_json_lines() -> None:
-    raw = '\n'.join(
+    raw = "\n".join(
         [
             '{"Name":"app","State":"running"}',
             '{"Name":"db","State":"running"}',

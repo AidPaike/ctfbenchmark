@@ -30,7 +30,12 @@ class FakeClient:
         return [{"event_type": "challenge_started", "challenge_id": challenge_id, "limit": limit}]
 
     def report_event(self, challenge_id, event_type, message, level="info", data=None):
-        return {"challenge_id": challenge_id, "event_type": event_type, "message": message, "level": level}
+        return {
+            "challenge_id": challenge_id,
+            "event_type": event_type,
+            "message": message,
+            "level": level,
+        }
 
     def start_all_challenges(self, challenge_ids=None):
         return {"started": challenge_ids or ["xben-001-24"], "errors": {}}
@@ -63,7 +68,12 @@ class FakeClient:
         return {"challenge_code": challenge_code, "hint_content": "hint"}
 
     def compat_submit_answer(self, challenge_code, answer):
-        return {"challenge_code": challenge_code, "accepted": True, "judged": False, "correct": False}
+        return {
+            "challenge_code": challenge_code,
+            "accepted": True,
+            "judged": False,
+            "correct": False,
+        }
 
 
 def test_cli_challenges_start_all_and_submit_print_json(monkeypatch, capsys) -> None:
@@ -83,7 +93,9 @@ def test_cli_challenges_start_all_and_submit_print_json(monkeypatch, capsys) -> 
     assert result["judged"] is False
 
 
-def test_cli_preflight_returns_success_when_all_selected_challenges_are_ready(monkeypatch, capsys) -> None:
+def test_cli_preflight_returns_success_when_all_selected_challenges_are_ready(
+    monkeypatch, capsys
+) -> None:
     monkeypatch.setattr(cli, "DropletClient", FakeClient)
 
     assert cli.main(["preflight", "--challenge-id", "xben-001-24"]) == 0

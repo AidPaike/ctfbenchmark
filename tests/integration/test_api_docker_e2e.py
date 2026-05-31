@@ -70,7 +70,9 @@ def test_api_can_start_challenge_record_submission_and_cleanup(droplet_server) -
     base_url, work_root = droplet_server
     task_id = os.getenv("DROPLET_E2E_TASK_ID", DEFAULT_TASK_ID)
 
-    with httpx.Client(base_url=base_url, headers=AUTH_HEADERS, timeout=600.0, trust_env=False) as client:
+    with httpx.Client(
+        base_url=base_url, headers=AUTH_HEADERS, timeout=600.0, trust_env=False
+    ) as client:
         challenges = _ok(client.get("/api/challenges"))
         assert any(challenge["id"] == task_id for challenge in challenges)
 
@@ -88,7 +90,9 @@ def test_api_can_start_challenge_record_submission_and_cleanup(droplet_server) -
             if last_status in ("running", "error"):
                 break
             time.sleep(2)
-        assert last_status == "running", f"Challenge did not reach running state, final status: {last_status}"
+        assert last_status == "running", (
+            f"Challenge did not reach running state, final status: {last_status}"
+        )
 
         endpoint = challenge["target_url"]
         assert endpoint
@@ -108,7 +112,9 @@ def test_api_can_start_challenge_record_submission_and_cleanup(droplet_server) -
         assert stats["solved"] == 0
         assert stats["overall_score"] == 0.0
 
-        challenge_after = next(item for item in _ok(client.get("/api/challenges")) if item["id"] == task_id)
+        challenge_after = next(
+            item for item in _ok(client.get("/api/challenges")) if item["id"] == task_id
+        )
         assert challenge_after["status"] == "running"
         assert challenge_after["submission_count"] == 1
 
@@ -136,7 +142,9 @@ def _wait_for_server(base_url: str, process: subprocess.Popen[str]) -> None:
     while time.monotonic() < deadline:
         if process.poll() is not None:
             output = process.stdout.read() if process.stdout else ""
-            raise AssertionError(f"Droplet server exited early with {process.returncode}:\n{output}")
+            raise AssertionError(
+                f"Droplet server exited early with {process.returncode}:\n{output}"
+            )
         try:
             response = httpx.get(f"{base_url}/api/health", timeout=1.0, trust_env=False)
             if response.status_code == 200:

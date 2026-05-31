@@ -90,6 +90,7 @@ def test_challenges_are_loaded_without_old_runtime_model(api_contract) -> None:
 
 def _wait_for_status(client, expected: str = "running", timeout: float = 2.0) -> dict:
     import time
+
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         challenge = client.get("/api/challenges", headers=AUTH).json()[0]

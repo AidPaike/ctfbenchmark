@@ -85,7 +85,9 @@ class TestChallengeLifecycle:
         print(f"[test] Target URL: {target_url}")
 
         # 4. Submit an answer. Droplet records it but does not read or judge the flag.
-        resp = api.post(f"/api/challenges/{challenge_id}/submit", json={"answer": "FLAG{agent_found}"})
+        resp = api.post(
+            f"/api/challenges/{challenge_id}/submit", json={"answer": "FLAG{agent_found}"}
+        )
         resp.raise_for_status()
         result = resp.json()
         assert result["accepted"] is True

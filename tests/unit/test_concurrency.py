@@ -31,7 +31,9 @@ def _make_challenge(template: Path, challenge_id: str = "demo") -> Challenge:
     )
 
 
-def test_start_challenge_sets_starting_state_and_spawns_background_thread(tmp_path, monkeypatch) -> None:
+def test_start_challenge_sets_starting_state_and_spawns_background_thread(
+    tmp_path, monkeypatch
+) -> None:
     template = tmp_path / "template"
     challenge = _make_challenge(template)
 
@@ -128,7 +130,9 @@ def test_start_challenge_counts_starting_towards_limit(tmp_path, monkeypatch) ->
     assert calls == []
 
 
-def test_stop_challenge_sets_stopping_state_and_spawns_background_thread(tmp_path, monkeypatch) -> None:
+def test_stop_challenge_sets_stopping_state_and_spawns_background_thread(
+    tmp_path, monkeypatch
+) -> None:
     template = tmp_path / "template"
     challenge = _make_challenge(template)
     challenge.status = ChallengeStatus.running
@@ -276,7 +280,9 @@ def test_start_all_collects_skipped_limit(tmp_path, monkeypatch) -> None:
     assert result["errors"] == {}
 
 
-def test_reset_challenge_respects_max_concurrent_limit_for_inactive_target(tmp_path, monkeypatch) -> None:
+def test_reset_challenge_respects_max_concurrent_limit_for_inactive_target(
+    tmp_path, monkeypatch
+) -> None:
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
     manager.max_concurrent = 2
 
