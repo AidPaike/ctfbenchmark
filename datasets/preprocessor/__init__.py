@@ -1,6 +1,13 @@
-"""Draft raw CTF challenges into Droplet/XBOW-like dataset structure."""
+"""Dataset preprocessor — convert raw CTF challenges into Droplet draft datasets."""
 
-from .agent import AgentSuggestion, LLMConfig
-from .generator import PreprocessResult, generate_draft
+from .base import BasePreprocessor, BatchRunner, BatchResult, ChallengeMetadata, ProcessResult
+from .xbow import XbowPreprocessor
 
-__all__ = ["AgentSuggestion", "LLMConfig", "PreprocessResult", "generate_draft"]
+__all__ = [
+    "BasePreprocessor",
+    "BatchRunner",
+    "BatchResult",
+    "ChallengeMetadata",
+    "ProcessResult",
+    "XbowPreprocessor",
+]
