@@ -99,11 +99,21 @@ def startup() -> None:
     logger.info("Droplet startup complete", extra={"challenge_count": len(manager.challenges)})
     app.state.prestart = None
     if _env_enabled("DROPLET_PRESTART_CHALLENGES", default=True):
-        prestart_ids = _prestart_ids()
-        if _env_enabled("DROPLET_PREFETCH_IMAGES", default=True):
-            logger.info("Pre-pulling Docker images before starting challenges...")
-            manager.prefetch_images(prestart_ids)
-        app.state.prestart = manager.start_all(prestart_ids)
+        import threading
+
+        def _deferred_start() -> None:
+            prestart_ids = _prestart_ids()
+            if _env_enabled("DROPLET_PREFETCH_IMAGES", default=True):
+                logger.info("Pre-pulling Docker images before starting challenges...")
+                manager.prefetch_images(prestart_ids)
+                # Wait for prefetch to finish so the progress bar is visible in the frontend
+                import time
+                while manager.prefetch_progress().get("running"):
+                    time.sleep(1)
+                logger.info("Image prefetch complete, starting challenges...")
+            app.state.prestart = manager.start_all(prestart_ids)
+
+        threading.Thread(target=_deferred_start, daemon=True).start()
 
 
 @app.on_event("shutdown")
