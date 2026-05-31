@@ -199,16 +199,26 @@ function App() {
 
   useEffect(() => {
     let active = true;
+    let attempts = 0;
     function poll() {
+      if (!active) return;
       api<{ running: boolean; total: number; current: number; pulled: number; skipped: number; errors: number; current_id: string }>("/api/challenges/prefetch/progress")
         .then((data) => {
           if (!active) return;
+          attempts++;
           setPrefetchProgress(data);
-          // Poll faster while running
-          setTimeout(poll, data.running ? 1000 : 10000);
+          if (data.running) {
+            // Fast poll while prefetch is active
+            setTimeout(poll, 1000);
+          } else if (attempts < 20) {
+            // Keep polling for a while after startup in case prefetch hasn't started yet
+            setTimeout(poll, 2000);
+          } else {
+            setTimeout(poll, 10000);
+          }
         })
         .catch(() => {
-          if (active) setTimeout(poll, 10000);
+          if (active) setTimeout(poll, 3000);
         });
     }
     poll();
@@ -250,6 +260,18 @@ function App() {
         </div>
       </header>
 
+      {prefetch?.running && (
+        <div className="prefetchBanner">
+          <RefreshCw size={15} className="prefetchSpin" />
+          <span>镜像预热</span>
+          <div className="prefetchBar">
+            <div className="prefetchFill" style={{ width: `${prefetch.total ? (prefetch.current / prefetch.total) * 100 : 0}%` }} />
+          </div>
+          <em>{prefetch.current}/{prefetch.total}</em>
+          <span className="prefetchDetail">{prefetch.current_id.toUpperCase()}{prefetch.pulled > 0 ? ` · 已拉取 ${prefetch.pulled}` : ""}</span>
+        </div>
+      )}
+
       {error && <ErrorDialog message={error} onClose={() => setError("")} />}
 
       {showResetConfirm && (
@@ -263,7 +285,7 @@ function App() {
         />
       )}
 
-      <StatsBand challenges={challenges} prefetch={prefetchProgress} onStop={(id) => runAction(async () => { await api(`/api/challenges/${id}/stop`, { method: "POST" }); })} />
+      <StatsBand challenges={challenges} onStop={(id) => runAction(async () => { await api(`/api/challenges/${id}/stop`, { method: "POST" }); })} />
 
       <section className="evaluationGrid">
         <ChallengeSidebar groups={groups} datasetTotals={datasetTotals} selectedId={selectedId} onSelect={setSelectedId} />
@@ -495,7 +517,7 @@ function ActivityRail({
   );
 }
 
-function StatsBand({ challenges, prefetch, onStop }: { challenges: Challenge[]; prefetch: { running: boolean; total: number; current: number; pulled: number; skipped: number; errors: number; current_id: string } | null; onStop: (id: string) => void }) {
+function StatsBand({ challenges, onStop }: { challenges: Challenge[]; onStop: (id: string) => void }) {
   const total = challenges.length;
   const solved = challenges.filter((c) => c.solved).length;
   const running = challenges.filter((c) => isRunning(c.status));
@@ -517,18 +539,6 @@ function StatsBand({ challenges, prefetch, onStop }: { challenges: Challenge[]; 
           </div>
         </div>
       ))}
-      {prefetch?.running && (
-        <div className="statTile prefetchTile">
-          <RefreshCw size={17} className="prefetchSpin" />
-          <div className="prefetchInfo">
-            <span>镜像预热 {prefetch.current}/{prefetch.total}</span>
-            <div className="prefetchBar">
-              <div className="prefetchFill" style={{ width: `${prefetch.total ? (prefetch.current / prefetch.total) * 100 : 0}%` }} />
-            </div>
-            <em>{prefetch.current_id.toUpperCase()}{prefetch.pulled > 0 ? ` · 已拉取 ${prefetch.pulled}` : ""}</em>
-          </div>
-        </div>
-      )}
       {running.map((c) => (
         <div className="statTile runningChallenge" key={c.id}>
           <Zap size={17} />

@@ -371,11 +371,49 @@ h2 {
   flex-shrink: 0;
 }
 
-/* ── Prefetch progress tile ── */
-.statTile.prefetchTile {
-  border-color: rgba(106, 208, 255, 0.45);
-  gap: 8px;
-  grid-column: span 2;
+/* ── Prefetch progress banner ── */
+.prefetchBanner {
+  align-items: center;
+  background: linear-gradient(90deg, #0d1a22, #0b1111);
+  border: 1px solid #1e3a4a;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  margin: 0 auto 14px;
+  max-width: 1800px;
+  padding: 10px 16px;
+}
+
+.prefetchBanner > svg:first-child {
+  color: #6ad0ff;
+  flex-shrink: 0;
+}
+
+.prefetchBanner > span {
+  color: #899693;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.prefetchBanner .prefetchBar {
+  flex: 1;
+  min-width: 80px;
+}
+
+.prefetchBanner em {
+  color: #6ad0ff;
+  font-size: 12px;
+  font-style: normal;
+  flex-shrink: 0;
+}
+
+.prefetchDetail {
+  color: #6a8a96 !important;
+  font-size: 11px !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .prefetchSpin {
@@ -388,21 +426,11 @@ h2 {
   to { transform: rotate(360deg); }
 }
 
-.prefetchInfo {
-  flex: 1;
-  min-width: 0;
-}
-
-.prefetchInfo span {
-  font-size: 10px;
-}
-
 .prefetchBar {
   background: #16201e;
   border: 1px solid #2c3c38;
   border-radius: 999px;
   height: 6px;
-  margin-top: 4px;
   overflow: hidden;
 }
 
@@ -411,17 +439,6 @@ h2 {
   border-radius: 999px;
   height: 100%;
   transition: width 0.3s ease;
-}
-
-.prefetchInfo em {
-  color: #6ad0ff;
-  display: block;
-  font-size: 10px;
-  font-style: normal;
-  margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .evaluationGrid {
