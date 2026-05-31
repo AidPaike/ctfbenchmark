@@ -15,11 +15,11 @@ from droplet.database import SystemLog, get_engine, init_db
 # ANSI color codes for terminal output
 # 终端输出的 ANSI 颜色代码
 _COLORS = {
-    "DEBUG": "\x1b[38;5;245m",      # gray
-    "INFO": "\x1b[38;5;82m",        # green
-    "WARNING": "\x1b[38;5;220m",    # yellow
-    "ERROR": "\x1b[38;5;196m",      # red
-    "CRITICAL": "\x1b[1;38;5;196m", # bold red
+    "DEBUG": "\x1b[38;5;245m",  # gray
+    "INFO": "\x1b[38;5;82m",  # green
+    "WARNING": "\x1b[38;5;220m",  # yellow
+    "ERROR": "\x1b[38;5;196m",  # red
+    "CRITICAL": "\x1b[1;38;5;196m",  # bold red
     "RESET": "\x1b[0m",
     "DIM": "\x1b[38;5;240m",
     "BOLD": "\x1b[1m",
@@ -40,7 +40,14 @@ class SQLiteLogHandler(logging.Handler):
                 exc_text = "".join(traceback.format_exception(*record.exc_info))
 
             data = {}
-            for key in ("challenge_id", "docker_command", "duration_ms", "status_code", "method", "path"):
+            for key in (
+                "challenge_id",
+                "docker_command",
+                "duration_ms",
+                "status_code",
+                "method",
+                "path",
+            ):
                 if hasattr(record, key):
                     data[key] = getattr(record, key)
 
@@ -65,7 +72,11 @@ class ColorFormatter(logging.Formatter):
 
     def __init__(self, fmt: str | None = None, datefmt: str | None = None) -> None:
         super().__init__(fmt, datefmt)
-        self._use_color = sys.stdout.isatty() or os.getenv("FORCE_COLOR", "").lower() in ("1", "true", "yes")
+        self._use_color = sys.stdout.isatty() or os.getenv("FORCE_COLOR", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
 
     def format(self, record: logging.LogRecord) -> str:
         ts = self.formatTime(record, "%Y-%m-%d %H:%M:%S")

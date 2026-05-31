@@ -79,7 +79,9 @@ class DropletManager:
             os.getenv("DROPLET_COMPOSE_TIMEOUT_SECONDS", str(DEFAULT_COMPOSE_TIMEOUT_SECONDS))
         )
         self.max_concurrent = int(
-            os.getenv("DROPLET_MAX_CONCURRENT_ENVIRONMENTS", str(DEFAULT_MAX_CONCURRENT_ENVIRONMENTS))
+            os.getenv(
+                "DROPLET_MAX_CONCURRENT_ENVIRONMENTS", str(DEFAULT_MAX_CONCURRENT_ENVIRONMENTS)
+            )
         )
         self._start_lock = threading.Lock()
 
@@ -106,7 +108,9 @@ class DropletManager:
         )
         logger.info(f"Loaded {len(self.challenges)} challenges")
         self._restore_progress()
-        logger.info(f"Restored progress for {sum(1 for c in self.challenges.values() if c.solved)} solved challenges")
+        logger.info(
+            f"Restored progress for {sum(1 for c in self.challenges.values() if c.solved)} solved challenges"
+        )
         self.events.record(
             "challenges_loaded",
             "题目元数据已加载",
@@ -169,7 +173,8 @@ class DropletManager:
         return sum(
             1
             for c in self.challenges.values()
-            if c.status in (ChallengeStatus.running, ChallengeStatus.starting, ChallengeStatus.stopping)
+            if c.status
+            in (ChallengeStatus.running, ChallengeStatus.starting, ChallengeStatus.stopping)
         )
 
     # [8] Background worker: performs the actual Docker Compose lifecycle
@@ -234,7 +239,6 @@ class DropletManager:
             if work_dir.exists():
                 shutil.rmtree(work_dir, ignore_errors=True)
 
-
     # [8] Batch start: skip already-running and explicitly judged-solved challenges; collect per-challenge errors
     # 批量启动：跳过已在运行和显式判题通过的题目；收集每个题目的错误
     def start_all(self, challenge_ids: list[str] | None = None) -> dict[str, Any]:
@@ -268,7 +272,9 @@ class DropletManager:
             "already_running": already_running,
             "skipped_limit": skipped_limit,
             "errors": errors,
-            "running": sum(1 for c in self.challenges.values() if c.status == ChallengeStatus.running),
+            "running": sum(
+                1 for c in self.challenges.values() if c.status == ChallengeStatus.running
+            ),
         }
 
     def stop_all(self) -> dict[str, Any]:
@@ -332,7 +338,10 @@ class DropletManager:
         with self._start_lock:
             if challenge.status in (ChallengeStatus.starting, ChallengeStatus.stopping):
                 return challenge
-            if challenge.status != ChallengeStatus.running and self._count_active_challenges() >= self.max_concurrent:
+            if (
+                challenge.status != ChallengeStatus.running
+                and self._count_active_challenges() >= self.max_concurrent
+            ):
                 raise RuntimeError(
                     f"Maximum concurrent environments ({self.max_concurrent}) reached. "
                     f"Please stop another environment first."
@@ -394,15 +403,17 @@ class DropletManager:
             )
             results = []
             for sub in session.exec(stmt):
-                results.append({
-                    "id": sub.id,
-                    "challenge_id": sub.challenge_id,
-                    "answer": sub.answer,
-                    "correct": sub.correct,
-                    "score_before": sub.score_before,
-                    "score_after": sub.score_after,
-                    "created_at": sub.created_at.isoformat() if sub.created_at else None,
-                })
+                results.append(
+                    {
+                        "id": sub.id,
+                        "challenge_id": sub.challenge_id,
+                        "answer": sub.answer,
+                        "correct": sub.correct,
+                        "score_before": sub.score_before,
+                        "score_after": sub.score_after,
+                        "created_at": sub.created_at.isoformat() if sub.created_at else None,
+                    }
+                )
             return results
 
     # ------------------------------------------------------------------
@@ -460,9 +471,7 @@ class DropletManager:
         session_id = get_current_session_id()
         engine = get_engine()
         with Session(engine) as session:
-            stmt = select(ChallengeProgress).where(
-                ChallengeProgress.session_id == session_id
-            )
+            stmt = select(ChallengeProgress).where(ChallengeProgress.session_id == session_id)
             for prog in session.exec(stmt):
                 if prog.challenge_id not in self.challenges:
                     continue
@@ -553,7 +562,11 @@ class DropletManager:
             "hint_viewed",
             "查看题目提示",
             challenge_id=challenge.id,
-            data={"penalty": penalty, "hint_penalty": challenge.hint_penalty, "first_use": first_use},
+            data={
+                "penalty": penalty,
+                "hint_penalty": challenge.hint_penalty,
+                "first_use": first_use,
+            },
         )
         return {
             "hint_id": "hint-1",
@@ -628,8 +641,22 @@ class DropletManager:
             )
         except subprocess.TimeoutExpired as exc:
             subprocess.run(
-                ["docker", "compose", "-p", project, "-f", str(compose_path), "down", "-v", "--remove-orphans"],
-                cwd=str(work_dir), env=docker_env, check=False, capture_output=True, text=True,
+                [
+                    "docker",
+                    "compose",
+                    "-p",
+                    project,
+                    "-f",
+                    str(compose_path),
+                    "down",
+                    "-v",
+                    "--remove-orphans",
+                ],
+                cwd=str(work_dir),
+                env=docker_env,
+                check=False,
+                capture_output=True,
+                text=True,
             )
             raise RuntimeError(
                 f"Docker Compose timed out after {self.compose_timeout_seconds}s: {' '.join(command)}"
@@ -641,8 +668,22 @@ class DropletManager:
                 extra={"challenge_id": challenge.id, "docker_command": " ".join(command)},
             )
             subprocess.run(
-                ["docker", "compose", "-p", project, "-f", str(compose_path), "down", "-v", "--remove-orphans"],
-                cwd=str(work_dir), env=docker_env, check=False, capture_output=True, text=True,
+                [
+                    "docker",
+                    "compose",
+                    "-p",
+                    project,
+                    "-f",
+                    str(compose_path),
+                    "down",
+                    "-v",
+                    "--remove-orphans",
+                ],
+                cwd=str(work_dir),
+                env=docker_env,
+                check=False,
+                capture_output=True,
+                text=True,
             )
             raise RuntimeError(detail)
 
@@ -700,8 +741,12 @@ class DropletManager:
             delay = min(2 ** (attempt - 1) * 0.25, 5.0)
             time.sleep(delay)
         if pending:
-            labels = ", ".join(str(item.get("url") or item.get("label") or item) for item in pending)
-            raise RuntimeError(f"Target endpoint not ready before timeout: {labels}; last_error={last_error}")
+            labels = ", ".join(
+                str(item.get("url") or item.get("label") or item) for item in pending
+            )
+            raise RuntimeError(
+                f"Target endpoint not ready before timeout: {labels}; last_error={last_error}"
+            )
 
     # [14] down -v --remove-orphans ensures volumes are also removed; work_dir is deleted afterwards
     # down -v --remove-orphans 确保卷也被删除；之后删除 work_dir
@@ -844,7 +889,9 @@ class DropletManager:
             if result.returncode != 0:
                 return False
             containers = _parse_compose_ps_json(result.stdout)
-            return any(c.get("State") == "running" or c.get("State") == "Running" for c in containers)
+            return any(
+                c.get("State") == "running" or c.get("State") == "Running" for c in containers
+            )
         except Exception:
             return False
 
@@ -878,7 +925,9 @@ class DropletManager:
                 service["build"] = build
             if not isinstance(build, dict):
                 continue
-            build["args"] = _proxy_build_args(build.get("args"), self.docker_proxy, self.docker_no_proxy)
+            build["args"] = _proxy_build_args(
+                build.get("args"), self.docker_proxy, self.docker_no_proxy
+            )
             changed = True
         if changed:
             compose_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
@@ -902,15 +951,15 @@ class DropletManager:
 
         for dockerfile in work_dir.rglob("Dockerfile"):
             text = dockerfile.read_text(encoding="utf-8")
-            lines = [
-                line
-                for line in text.splitlines()
-                if not _is_proxy_dockerfile_line(line)
-            ]
+            lines = [line for line in text.splitlines() if not _is_proxy_dockerfile_line(line)]
             if lines != text.splitlines():
-                dockerfile.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""), encoding="utf-8")
+                dockerfile.write_text(
+                    "\n".join(lines) + ("\n" if text.endswith("\n") else ""), encoding="utf-8"
+                )
 
-    def _rewrite_ports(self, compose_path: Path, expose: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _rewrite_ports(
+        self, compose_path: Path, expose: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         data = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
         services = data.get("services") or {}
         out = []
@@ -919,7 +968,9 @@ class DropletManager:
             if not service:
                 continue
             # Let Docker pick the host port to eliminate the TOCTOU race.
-            service["ports"] = _replace_port(service.get("ports", []), int(item["container_port"]), 0)
+            service["ports"] = _replace_port(
+                service.get("ports", []), int(item["container_port"]), 0
+            )
             out.append({**item, "host_port": 0})
         compose_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
         return out
@@ -948,8 +999,13 @@ class DropletManager:
     ) -> int | None:
         """Run `docker compose port` and return the host port number."""
         command = [
-            "docker", "compose", "-p", project,
-            "port", service, str(container_port),
+            "docker",
+            "compose",
+            "-p",
+            project,
+            "port",
+            service,
+            str(container_port),
         ]
         for attempt in range(3):
             result = subprocess.run(
@@ -980,18 +1036,23 @@ class DropletManager:
                 if target.isdigit():
                     container_port = int(target)
                     protocol = "http" if container_port in {80, 8080, 8000, 5000, 3000} else "tcp"
-                    expose.append({
-                        "name": "web" if protocol == "http" else service_name,
-                        "protocol": protocol,
-                        "service": service_name,
-                        "container_port": container_port,
-                    })
-        return expose or [{"name": "web", "protocol": "http", "service": "web", "container_port": 80}]
+                    expose.append(
+                        {
+                            "name": "web" if protocol == "http" else service_name,
+                            "protocol": protocol,
+                            "service": service_name,
+                            "container_port": container_port,
+                        }
+                    )
+        return expose or [
+            {"name": "web", "protocol": "http", "service": "web", "container_port": 80}
+        ]
 
 
 # ----------------------------------------------------------------------
 # Standalone helpers
 # ----------------------------------------------------------------------
+
 
 # [16] Use "0:container_port" in docker-compose.yml and let Docker pick the host port
 # directly.  This eliminates the TOCTOU race condition that existed when we
@@ -1001,12 +1062,6 @@ class DropletManager:
 # After docker compose up we query the actual bound port with
 #   docker compose -p <project> port <service> <container_port>
 # which returns "0.0.0.0:<host_port>".
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("", 0))
-        return int(sock.getsockname()[1])
-
-
 def _compose_error(command: list[str], result: subprocess.CompletedProcess[str]) -> str:
     output = (result.stderr or result.stdout or "").strip()
     if output:

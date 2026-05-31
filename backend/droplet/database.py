@@ -53,11 +53,20 @@ def init_db() -> None:
 def _ensure_sqlite_columns(engine) -> None:
     """Apply small additive SQLite migrations for existing local databases."""
     with engine.begin() as connection:
-        tables = {row[0] for row in connection.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table'")}
+        tables = {
+            row[0]
+            for row in connection.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
         if "events" in tables:
-            event_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(events)")}
+            event_columns = {
+                row[1] for row in connection.exec_driver_sql("PRAGMA table_info(events)")
+            }
             if "archived" not in event_columns:
-                connection.exec_driver_sql("ALTER TABLE events ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0")
+                connection.exec_driver_sql(
+                    "ALTER TABLE events ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0"
+                )
 
 
 # [3] SQLModel table for audit events — API shape is compatible with the legacy JSONL schema
@@ -193,6 +202,7 @@ def reset_session_cache() -> None:
 
 # [9] Optional migration: copy historical JSONL events into SQLite on first init
 # 可选迁移：首次初始化时将历史 JSONL 事件复制到 SQLite
+
 
 def migrate_jsonl_to_sqlite(jsonl_path: Path) -> int:
     if not jsonl_path.exists():

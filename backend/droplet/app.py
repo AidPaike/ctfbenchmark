@@ -165,7 +165,9 @@ def clear_challenge_events(challenge_id: str, _: None = Depends(require_auth)) -
 
 @app.post("/api/events/clear")
 def clear_events(payload: dict | None = None, _: None = Depends(require_auth)) -> dict:
-    challenge_id = str(payload.get("challenge_id")) if payload and payload.get("challenge_id") else None
+    challenge_id = (
+        str(payload.get("challenge_id")) if payload and payload.get("challenge_id") else None
+    )
     if challenge_id is not None:
         try:
             manager.get_challenge(challenge_id)
@@ -175,7 +177,9 @@ def clear_events(payload: dict | None = None, _: None = Depends(require_auth)) -
 
 
 @app.post("/api/challenges/{challenge_id}/events")
-def append_challenge_event(challenge_id: str, payload: dict, _: None = Depends(require_auth)) -> dict:
+def append_challenge_event(
+    challenge_id: str, payload: dict, _: None = Depends(require_auth)
+) -> dict:
     try:
         manager.get_challenge(challenge_id)
     except KeyError as exc:
@@ -283,6 +287,7 @@ def stats(_: None = Depends(require_auth)) -> dict:
 # 兼容路由（腾讯风格 API）
 # 这些路由在 Droplet 原生模型和腾讯预期的字段名/结构之间进行转换
 # ------------------------------------------------------------------
+
 
 @app.get("/api/v1/challenges")
 def compat_challenges(_: None = Depends(require_auth)) -> dict:

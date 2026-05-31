@@ -28,8 +28,7 @@ class DatasetAdapter(Protocol):
         config: dict[str, Any],
         *,
         infer_expose: InferExpose,
-    ) -> Iterable[Challenge]:
-        ...
+    ) -> Iterable[Challenge]: ...
 
 
 # [3] DatasetLoader registers adapters in a dict keyed by dataset_type.
@@ -99,7 +98,9 @@ class DatasetLoader:
                 continue
             child_yaml = child / "droplet.yaml"
             if child_yaml.exists():
-                loaded.update(self._load_from_manifest(child, child_yaml, infer_expose=infer_expose))
+                loaded.update(
+                    self._load_from_manifest(child, child_yaml, infer_expose=infer_expose)
+                )
             elif _looks_like_dataset(child):
                 loaded.update(self._discover_single(child, infer_expose=infer_expose))
         return loaded
