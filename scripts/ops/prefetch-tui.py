@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Display prefetch progress in the terminal banner area.
+"""Poll prefetch progress and write status to a file for the shell banner to read.
 
-Usage: python3 scripts/ops/prefetch-tui.py <row> [api_url] [token]
+Usage: python3 scripts/ops/prefetch-tui.py <status_file> [api_url] [token]
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 
 def main() -> None:
-    row = int(sys.argv[1]) if len(sys.argv) > 1 else 13
+    status_file = sys.argv[1] if len(sys.argv) > 1 else "/tmp/droplet-prefetch.status"
     api = sys.argv[2] if len(sys.argv) > 2 else "http://127.0.0.1:1349"
     token = sys.argv[3] if len(sys.argv) > 3 else "droplet_dev_admin"
     bar_w = 20
@@ -22,10 +22,17 @@ def main() -> None:
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     headers = {"Authorization": f"Bearer {token}"}
 
-    # Phase 1: Wait for API with animated spinner
+    def write_status(text: str) -> None:
+        try:
+            with open(status_file, "w") as f:
+                f.write(text)
+        except OSError:
+            pass
+
+    # Phase 1: Wait for API
     spin_i = 0
     for _ in range(60):
-        _write(row, f"  \033[1mPrefetch\033[0m   \033[36m{SPINNER[spin_i % len(SPINNER)]}\033[0m \033[2m等待后端启动...\033[0m   ")
+        write_status(f"等待后端启动 {SPINNER[spin_i % len(SPINNER)]}")
         spin_i += 1
         try:
             req = urllib.request.Request(f"{api}/api/health", headers=headers)
@@ -34,7 +41,7 @@ def main() -> None:
         except Exception:
             time.sleep(1)
     else:
-        _write(row, "  \033[1mPrefetch\033[0m   \033[33m⚠\033[0m 后端未响应，跳过预热   ")
+        write_status("后端未响应")
         return
 
     # Phase 2: Poll prefetch progress
@@ -56,10 +63,9 @@ def main() -> None:
 
         if not running:
             if total > 0:
-                _write(row, f"  \033[1mPrefetch\033[0m   \033[32m✓\033[0m 完成  拉取 {pulled}  错误 {errors}   ")
+                write_status(f"✓ 完成  拉取 {pulled}  错误 {errors}")
             else:
-                # Prefetch hasn't started yet, show waiting animation
-                _write(row, f"  \033[1mPrefetch\033[0m   \033[36m{SPINNER[spin_i % len(SPINNER)]}\033[0m \033[2m准备中...\033[0m   ")
+                write_status(f"准备中 {SPINNER[spin_i % len(SPINNER)]}")
                 spin_i += 1
                 time.sleep(0.5)
                 continue
@@ -67,16 +73,10 @@ def main() -> None:
 
         pct = (current * 100 // total) if total > 0 else 0
         filled = pct * bar_w // 100
-        bar = "\033[36m" + "█" * filled + "\033[0m" + "░" * (bar_w - filled)
-        _write(row, f"  \033[1mPrefetch\033[0m   \033[36m{SPINNER[spin_i % len(SPINNER)]}\033[0m [{bar}] {pct:3d}%  {current}/{total}  \033[2m{cid}\033[0m   ")
+        bar = "█" * filled + "░" * (bar_w - filled)
+        write_status(f"{SPINNER[spin_i % len(SPINNER)]} [{bar}] {pct:3d}%  {current}/{total}  {cid}")
         spin_i += 1
         time.sleep(1)
-
-
-def _write(row: int, text: str) -> None:
-    """Write text to a specific terminal row using ANSI save/restore cursor."""
-    sys.stdout.write(f"\0337\033[{row + 1};1H\033[2K{text}\0338")
-    sys.stdout.flush()
 
 
 if __name__ == "__main__":

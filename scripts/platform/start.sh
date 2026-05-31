@@ -136,17 +136,44 @@ print_banner() {
   echo ""
 }
 
-# ── Prefetch progress (single Python process, no shell loop) ────────
-_PREFETCH_PID=""
+# ── Prefetch progress (Python polls API → file, shell reads file → terminal)
+_PREFETCH_POLL_PID=""
+_PREFETCH_DISPLAY_PID=""
+_PREFETCH_STATUS_FILE="/tmp/droplet-prefetch.status"
 
 _start_prefetch_progress() {
   if [[ "$_HAS_TPUT" != "1" ]]; then
     return
   fi
+  rm -f "$_PREFETCH_STATUS_FILE"
+  echo "启动中..." > "$_PREFETCH_STATUS_FILE"
+
+  # Background: Python polls API, writes status to file
   python3 "${PROJECT_ROOT}/scripts/ops/prefetch-tui.py" \
-    12 "http://${BACKEND_HOST}:${BACKEND_PORT}" "droplet_dev_admin" \
+    "$_PREFETCH_STATUS_FILE" "http://${BACKEND_HOST}:${BACKEND_PORT}" "droplet_dev_admin" \
     >/dev/null 2>&1 &
-  _PREFETCH_PID=$!
+  _PREFETCH_POLL_PID=$!
+
+  # Background: Shell reads file, updates banner line via tput
+  (
+    local row=12
+    local prev=""
+    while true; do
+      local status
+      status=$(cat "$_PREFETCH_STATUS_FILE" 2>/dev/null || echo "...")
+      if [[ "$status" != "$prev" ]]; then
+        tput cup "$row" 0
+        printf "  ${C_BOLD}Prefetch${C_RESET}   %s             " "$status"
+        prev="$status"
+      fi
+      # Stop if completed
+      if [[ "$status" == ✓* ]]; then
+        break
+      fi
+      sleep 0.5
+    done
+  ) &
+  _PREFETCH_DISPLAY_PID=$!
 }
 
 # Clear screen, print banner, then restrict scrolling to the area below it.
@@ -163,7 +190,7 @@ fi
 # ── Stream backend logs in the scroll region ───────────────────────
 TAIL_PID=""
 if [[ "$_HAS_TPUT" == "1" ]]; then
-  tail -n +1 -f --poll "$BACKEND_LOG" &
+  tail -n +1 -f "$BACKEND_LOG" 2>/dev/null &
   TAIL_PID=$!
 fi
 
@@ -178,11 +205,14 @@ cleanup() {
     wait "$TAIL_PID" 2>/dev/null || true
   fi
 
-  # Stop prefetch progress updater.
-  if [[ -n "$_PREFETCH_PID" ]]; then
-    kill "$_PREFETCH_PID" 2>/dev/null || true
-    wait "$_PREFETCH_PID" 2>/dev/null || true
-  fi
+  # Stop prefetch progress processes.
+  for _pid in "$_PREFETCH_POLL_PID" "$_PREFETCH_DISPLAY_PID"; do
+    if [[ -n "$_pid" ]]; then
+      kill "$_pid" 2>/dev/null || true
+      wait "$_pid" 2>/dev/null || true
+    fi
+  done
+  rm -f "$_PREFETCH_STATUS_FILE"
 
   # Reset terminal scroll region back to full screen.
   if [[ "$_HAS_TPUT" == "1" ]]; then
