@@ -244,7 +244,7 @@ function App() {
         />
       )}
 
-      <StatsBand challenges={challenges} />
+      <StatsBand challenges={challenges} onStop={(id) => runAction(async () => { await api(`/api/challenges/${id}/stop`, { method: "POST" }); })} />
 
       <section className="evaluationGrid">
         <ChallengeSidebar groups={groups} datasetTotals={datasetTotals} selectedId={selectedId} onSelect={setSelectedId} />
@@ -476,13 +476,13 @@ function ActivityRail({
   );
 }
 
-function StatsBand({ challenges }: { challenges: Challenge[] }) {
+function StatsBand({ challenges, onStop }: { challenges: Challenge[]; onStop: (id: string) => void }) {
   const total = challenges.length;
   const solved = challenges.filter((c) => c.solved).length;
-  const running = challenges.filter((c) => isRunning(c.status)).length;
+  const running = challenges.filter((c) => isRunning(c.status));
   const items = [
     { label: "题目", value: String(total), icon: <ListChecks size={17} />, tone: "blue" },
-    { label: "运行中", value: String(running), icon: <Zap size={17} />, tone: "red" },
+    { label: "运行中", value: String(running.length), icon: <Zap size={17} />, tone: "red" },
     { label: "已解出", value: String(solved), icon: <CheckCircle2 size={17} />, tone: "green" },
     { label: "进度", value: `${total ? Math.round((solved / total) * 100) : 0}%`, icon: <Gauge size={17} />, tone: "white" },
   ];
@@ -496,6 +496,18 @@ function StatsBand({ challenges }: { challenges: Challenge[] }) {
             <span>{item.label}</span>
             <strong>{item.value}</strong>
           </div>
+        </div>
+      ))}
+      {running.map((c) => (
+        <div className="statTile runningChallenge" key={c.id}>
+          <Zap size={17} />
+          <div className="runningChallengeInfo">
+            <span>{c.id.toUpperCase()}</span>
+            <strong>{statusLabel(c.status)}</strong>
+          </div>
+          <button className="iconButton ghost danger runningStop" onClick={() => onStop(c.id)} title="停止">
+            <Square size={14} />
+          </button>
         </div>
       ))}
     </section>

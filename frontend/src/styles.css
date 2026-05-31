@@ -341,6 +341,36 @@ h2 {
   color: #8ea09b;
 }
 
+.statTile.runningChallenge {
+  border-color: rgba(255, 200, 87, 0.45);
+  gap: 8px;
+}
+
+.statTile.runningChallenge svg:first-child {
+  color: #ffc857;
+}
+
+.runningChallengeInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.runningChallengeInfo span {
+  font-size: 10px;
+}
+
+.runningChallengeInfo strong {
+  color: #ffe0a0;
+  font-size: 13px;
+}
+
+.runningStop {
+  min-height: 28px;
+  width: 28px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
 .evaluationGrid {
   display: grid;
   gap: 14px;
