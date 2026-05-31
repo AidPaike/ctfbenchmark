@@ -136,64 +136,16 @@ print_banner() {
   echo ""
 }
 
-# ── Prefetch progress updater (writes to a fixed banner line) ───────
-_PREFETCH_ROW=13            # 0-indexed row for the Prefetch line (line 14)
+# ── Prefetch progress (single Python process, no shell loop) ────────
 _PREFETCH_PID=""
 
 _start_prefetch_progress() {
   if [[ "$_HAS_TPUT" != "1" ]]; then
     return
   fi
-  (
-    local API="http://${BACKEND_HOST}:${BACKEND_PORT}"
-    local TOKEN="droplet_dev_admin"
-    local bar_width=25
-
-    # Wait for API to be ready
-    for _ in $(seq 1 30); do
-      curl -sf --noproxy '*' -H "Authorization: Bearer $TOKEN" "$API/api/health" >/dev/null 2>&1 && break
-      sleep 1
-    done
-
-    while true; do
-      local data
-      data=$(curl -sf --noproxy '*' -H "Authorization: Bearer $TOKEN" "$API/api/challenges/prefetch/progress" 2>/dev/null) || { sleep 2; continue; }
-
-      local running total current pulled cid
-      running=$(echo "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('running',False))" 2>/dev/null) || { sleep 1; continue; }
-      total=$(echo "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total',0))" 2>/dev/null)
-      current=$(echo "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('current',0))" 2>/dev/null)
-      pulled=$(echo "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('pulled',0))" 2>/dev/null)
-      cid=$(echo "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('current_id','').upper())" 2>/dev/null)
-
-      if [ "$running" != "True" ]; then
-        if [ "$total" != "0" ]; then
-          local errors
-          errors=$(echo "$data" | python3 -c "import sys,json; print(json.load(sys.stdin).get('errors',0))" 2>/dev/null)
-          tput cup "$_PREFETCH_ROW" 0
-          printf "  ${C_BOLD}Prefetch${C_RESET}   ${C_GREEN}✓ 预热完成${C_RESET}  拉取 ${C_BOLD}%s${C_RESET} 个镜像  错误 %s 个    " "$pulled" "$errors"
-          break
-        fi
-        sleep 1
-        continue
-      fi
-
-      # Build progress bar
-      local pct=0
-      if [ "$total" -gt 0 ] 2>/dev/null; then
-        pct=$((current * 100 / total))
-      fi
-      local filled=$((pct * bar_width / 100))
-      local empty=$((bar_width - filled))
-      local bar
-      bar=$(printf "%${filled}s" | tr ' ' '█')$(printf "%${empty}s" | tr ' ' '░')
-
-      tput cup "$_PREFETCH_ROW" 0
-      printf "  ${C_BOLD}Prefetch${C_RESET}   ${C_CYAN}⟳${C_RESET} [%s] %3d%%  %s/%s  ${C_DIM}%s${C_RESET}    " "$bar" "$pct" "$current" "$total" "$cid"
-
-      sleep 1
-    done
-  ) &
+  python3 "${PROJECT_ROOT}/scripts/ops/prefetch-tui.py" \
+    12 "http://${BACKEND_HOST}:${BACKEND_PORT}" "droplet_dev_admin" \
+    >/dev/null 2>&1 &
   _PREFETCH_PID=$!
 }
 
