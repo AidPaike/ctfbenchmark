@@ -40,6 +40,13 @@ def stop_all_challenges() -> dict:
 
 
 @mcp.tool()
+def prefetch_images(challenge_ids: list[str] | None = None) -> dict:
+    """Pre-pull Docker images for challenges to speed up subsequent starts."""
+    with _client() as api:
+        return api.prefetch_images(challenge_ids)
+
+
+@mcp.tool()
 def start_challenge(challenge_id: str) -> dict:
     """Start a challenge environment. Returns the challenge with target_url."""
     with _client() as api:

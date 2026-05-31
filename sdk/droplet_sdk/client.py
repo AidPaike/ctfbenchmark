@@ -68,6 +68,11 @@ class DropletClient:
         """Stop all running challenge environments."""
         return self._request("POST", "/api/challenges/stop-all")
 
+    def prefetch_images(self, challenge_ids: list[str] | None = None) -> dict[str, Any]:
+        """Pre-pull Docker images for challenges to speed up subsequent starts."""
+        payload = {"challenge_ids": challenge_ids} if challenge_ids else None
+        return self._request("POST", "/api/challenges/prefetch", json=payload)
+
     def start_challenge(self, challenge_id: str) -> dict[str, Any]:
         """Start a challenge environment. Returns updated challenge with target_url."""
         return self._request("POST", f"/api/challenges/{challenge_id}/start")

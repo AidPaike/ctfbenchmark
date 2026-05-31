@@ -293,6 +293,67 @@ class DropletManager:
                 errors[challenge.id] = str(exc)
         return {"stopped": stopped, "errors": errors}
 
+    def prefetch_images(self, challenge_ids: list[str] | None = None) -> dict[str, Any]:
+        """Pre-pull Docker images for challenges to speed up subsequent starts.
+
+        Runs `docker compose pull` for each challenge's docker-compose.yml.
+        When images are already cached, this is a fast no-op.
+        """
+        targets = challenge_ids or list(self.challenges.keys())
+        pulled: list[str] = []
+        skipped: list[str] = []
+        errors: dict[str, str] = {}
+
+        docker_env = self._docker_environment()
+
+        for challenge_id in targets:
+            challenge = self.challenges.get(challenge_id)
+            if challenge is None:
+                errors[challenge_id] = "Challenge not found"
+                continue
+            if challenge.status in (ChallengeStatus.running, ChallengeStatus.starting):
+                skipped.append(challenge_id)
+                continue
+
+            compose_src = Path(challenge.root) / "docker-compose.yml"
+            if not compose_src.exists():
+                errors[challenge_id] = "No docker-compose.yml"
+                continue
+
+            try:
+                # Parse image names from compose file for logging
+                compose_data = yaml.safe_load(compose_src.read_text(encoding="utf-8")) or {}
+                images = set()
+                for svc in (compose_data.get("services") or {}).values():
+                    img = svc.get("image")
+                    if img:
+                        images.add(str(img))
+
+                logger.info(
+                    f"Pre-pulling images for {challenge_id}: {images or '(build-only)'}",
+                    extra={"challenge_id": challenge_id},
+                )
+
+                result = subprocess.run(
+                    ["docker", "compose", "-f", str(compose_src), "pull"],
+                    cwd=str(Path(challenge.root)),
+                    env=docker_env,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                if result.returncode == 0:
+                    pulled.append(challenge_id)
+                else:
+                    errors[challenge_id] = (result.stderr or result.stdout or "").strip()[:200]
+            except subprocess.TimeoutExpired:
+                errors[challenge_id] = "Pull timed out (300s)"
+            except Exception as exc:
+                errors[challenge_id] = str(exc)
+
+        logger.info(f"Pre-pull complete: {len(pulled)} pulled, {len(skipped)} skipped, {len(errors)} errors")
+        return {"pulled": pulled, "skipped": skipped, "errors": errors}
+
     def stop_challenge(self, challenge_id: str) -> Challenge:
         challenge = self.get_challenge(challenge_id)
         with self._start_lock:

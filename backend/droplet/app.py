@@ -99,7 +99,11 @@ def startup() -> None:
     logger.info("Droplet startup complete", extra={"challenge_count": len(manager.challenges)})
     app.state.prestart = None
     if _env_enabled("DROPLET_PRESTART_CHALLENGES", default=True):
-        app.state.prestart = manager.start_all(_prestart_ids())
+        prestart_ids = _prestart_ids()
+        if _env_enabled("DROPLET_PREFETCH_IMAGES", default=False):
+            logger.info("Pre-pulling Docker images before starting challenges...")
+            manager.prefetch_images(prestart_ids)
+        app.state.prestart = manager.start_all(prestart_ids)
 
 
 @app.on_event("shutdown")
@@ -200,6 +204,14 @@ def append_challenge_event(
         level=level,
         data=data,
     )
+
+
+@app.post("/api/challenges/prefetch")
+def prefetch_images(payload: dict | None = None, _: None = Depends(require_auth)) -> dict:
+    challenge_ids = payload.get("challenge_ids") if payload else None
+    if challenge_ids is not None:
+        challenge_ids = [str(item).lower() for item in challenge_ids]
+    return manager.prefetch_images(challenge_ids)
 
 
 @app.post("/api/challenges/start-all")

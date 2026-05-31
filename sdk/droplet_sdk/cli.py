@@ -53,6 +53,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("stop-all", help="Stop all running challenge environments")
 
+    prefetch = subparsers.add_parser("prefetch", help="Pre-pull Docker images for challenges")
+    prefetch.add_argument("--challenge-id", action="append", dest="challenge_ids")
+
     start = subparsers.add_parser("start", help="Start a challenge environment")
     start.add_argument("challenge_id")
 
@@ -109,6 +112,8 @@ def main(argv: list[str] | None = None) -> int:
             return _print(client.start_all_challenges(args.challenge_ids))
         if args.command == "stop-all":
             return _print(client.stop_all_challenges())
+        if args.command == "prefetch":
+            return _print(client.prefetch_images(args.challenge_ids))
         if args.command == "start":
             return _print(client.start_challenge(args.challenge_id))
         if args.command == "stop":
