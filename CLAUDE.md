@@ -127,7 +127,7 @@ All tables live in a single SQLite file (`data/droplet.db` by default):
 ### SDK (`sdk/droplet_sdk/`)
 
 - `client.py`: `DropletClient` dataclass wrapping `httpx.Client`. Bearer auth, retry logic, timeout config.
-- `cli.py`: Command-line interface using the client. Subcommands: `challenges`, `start`, `stop`, `start-all`, `submit`, `stats`, `events`, `report-event`.
+- `cli.py`: Command-line interface using the client. Subcommands: `doctor`, `serve`, `challenges`, `events`, `report-event`, `preflight`, `start-all`, `stop-all`, `start`, `stop`, `reset`, `submit`, `hint`, `stats`, `compat-challenges`, `compat-hint`, `compat-submit`.
 - `mcp_server.py`: FastMCP server exposing platform operations as MCP tools.
 
 ### Dataset Structure
@@ -156,7 +156,7 @@ The `droplet.yaml` `auto_discover` section tells `DatasetLoader` which adapter (
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DROPLET_DATASET_ROOT` | `datasets/demo-xbow` | Challenge dataset root |
+| `DROPLET_DATASET_ROOT` | `datasets` | Challenge dataset root (contains `droplet.yaml` with multi-dataset config) |
 | `DROPLET_WORK_ROOT` | `data/work` | Runtime work directories |
 | `DROPLET_PUBLIC_HOST` | `127.0.0.1` | Host exposed to agents |
 | `DROPLET_DATABASE_PATH` | `data/droplet.db` | SQLite file path |
