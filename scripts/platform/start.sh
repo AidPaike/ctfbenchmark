@@ -16,7 +16,7 @@ export FORCE_COLOR="1"                          # keep ANSI colors in log files
 BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${BACKEND_PORT:-1349}"
 FRONTEND_PORT="${FRONTEND_PORT:-10349}"
-VERSION="0.5.1"
+VERSION="0.6.0"
 
 # Proxy settings
 if [[ -n "${DROPLET_DOCKER_PROXY:-}" ]]; then
