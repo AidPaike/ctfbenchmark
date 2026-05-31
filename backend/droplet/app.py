@@ -124,6 +124,11 @@ def list_challenges(_: None = Depends(require_auth)) -> list[dict]:
     return manager.list_challenges()
 
 
+@app.get("/api/datasets")
+def list_datasets(_: None = Depends(require_auth)) -> dict[str, int]:
+    return manager.dataset_totals()
+
+
 @app.get("/api/challenges/{challenge_id}")
 def get_challenge(challenge_id: str, _: None = Depends(require_auth)) -> dict:
     try:

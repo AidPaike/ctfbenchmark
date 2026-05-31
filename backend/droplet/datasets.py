@@ -44,6 +44,12 @@ class DatasetLoader:
     def __init__(self, adapters: Iterable[DatasetAdapter] | None = None) -> None:
         selected = list(adapters or [XbowDatasetAdapter()])
         self.adapters = {adapter.dataset_type: adapter for adapter in selected}
+        self._dataset_totals: dict[str, int] = {}
+
+    @property
+    def dataset_totals(self) -> dict[str, int]:
+        """Raw challenge directory counts per dataset before deduplication."""
+        return dict(self._dataset_totals)
 
     def load(
         self,
@@ -129,6 +135,13 @@ class DatasetLoader:
             if _is_challenge_dir(resolved):
                 # resolved directly contains challenge subdirs
                 dataset_id = resolved.parent.name
+                # Count raw directories before dedup
+                raw_count = sum(
+                    1
+                    for d in sorted(resolved.iterdir())
+                    if d.is_dir() and (d / "benchmark.json").exists()
+                )
+                self._dataset_totals[dataset_id] = self._dataset_totals.get(dataset_id, 0) + raw_count
                 config: dict[str, Any] = {
                     "type": "xbow",
                     "path": resolved.name,
@@ -147,6 +160,13 @@ class DatasetLoader:
                     logger.warning(f"No challenges found in: {resolved}")
                     continue
                 dataset_id = resolved.name
+                # Count raw directories before dedup
+                raw_count = sum(
+                    1
+                    for d in sorted(sub_path.iterdir())
+                    if d.is_dir() and (d / "benchmark.json").exists()
+                )
+                self._dataset_totals[dataset_id] = self._dataset_totals.get(dataset_id, 0) + raw_count
                 config = {
                     "type": "xbow",
                     "path": sub_path,

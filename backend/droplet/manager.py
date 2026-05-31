@@ -120,6 +120,9 @@ class DropletManager:
     def list_challenges(self) -> list[dict[str, Any]]:
         return [c.public() for c in self.challenges.values()]
 
+    def dataset_totals(self) -> dict[str, int]:
+        return self.dataset_loader.dataset_totals
+
     def get_challenge(self, challenge_id: str) -> Challenge:
         if challenge_id not in self.challenges:
             raise KeyError("Challenge not found")

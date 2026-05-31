@@ -77,6 +77,7 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem("droplet_token") ?? "droplet_dev_admin");
   const [theme, setTheme] = useState<ThemeMode>(() => (localStorage.getItem("droplet_theme") === "light" ? "light" : "dark"));
   const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [datasetTotals, setDatasetTotals] = useState<Record<string, number>>({});
   const [selectedId, setSelectedId] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -117,8 +118,12 @@ function App() {
 
   async function refresh() {
     localStorage.setItem("droplet_token", token);
-    const data = await api<Challenge[]>("/api/challenges");
+    const [data, totals] = await Promise.all([
+      api<Challenge[]>("/api/challenges"),
+      api<Record<string, number>>("/api/datasets"),
+    ]);
     setChallenges(data);
+    setDatasetTotals(totals);
     const currentId = selectedIdRef.current;
     const nextSelected = !currentId || !data.some((c) => c.id === currentId) ? data[0]?.id ?? "" : currentId;
     if (nextSelected !== currentId) {
@@ -242,7 +247,7 @@ function App() {
       <StatsBand challenges={challenges} />
 
       <section className="evaluationGrid">
-        <ChallengeSidebar groups={groups} selectedId={selectedId} onSelect={setSelectedId} />
+        <ChallengeSidebar groups={groups} datasetTotals={datasetTotals} selectedId={selectedId} onSelect={setSelectedId} />
 
         <section className="taskStack">
           {selected ? (
@@ -499,24 +504,28 @@ function StatsBand({ challenges }: { challenges: Challenge[] }) {
 
 function ChallengeSidebar({
   groups,
+  datasetTotals,
   selectedId,
   onSelect,
 }: {
   groups: { id: string; name: string; challenges: Challenge[] }[];
+  datasetTotals: Record<string, number>;
   selectedId: string;
   onSelect: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const totalCount = groups.reduce((n, g) => n + (datasetTotals[g.id] ?? g.challenges.length), 0);
 
   return (
     <aside className="benchmarkRail">
       <div className="railHeader">
         <span>题目列表</span>
-        <strong>{groups.reduce((n, g) => n + g.challenges.length, 0)}</strong>
+        <strong>{totalCount}</strong>
       </div>
       <div className="benchmarkList">
         {groups.map((group) => {
           const open = expanded[group.id] ?? true;
+          const total = datasetTotals[group.id] ?? group.challenges.length;
           return (
             <section className="benchmarkBlock" key={group.id}>
               <button className="benchmarkTop" onClick={() => setExpanded((v) => ({ ...v, [group.id]: !v[group.id] }))}>
@@ -525,8 +534,8 @@ function ChallengeSidebar({
                   <strong>{group.name}</strong>
                 </div>
                 <div className="benchmarkRight">
-                  <span className="countBadge">{group.challenges.length} 题</span>
-                  <em>{group.challenges.filter((c) => c.solved).length}/{group.challenges.length}</em>
+                  <span className="countBadge">{total} 题</span>
+                  <em>{group.challenges.filter((c) => c.solved).length}/{total}</em>
                   {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </div>
               </button>
