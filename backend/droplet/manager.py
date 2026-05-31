@@ -10,6 +10,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,7 @@ DEFAULT_DOCKER_NO_PROXY = "127.0.0.1,localhost,::1,host.docker.internal,pypi.tun
 DEFAULT_READY_TIMEOUT_SECONDS = 90
 DEFAULT_COMPOSE_TIMEOUT_SECONDS = 300
 DEFAULT_MAX_CONCURRENT_ENVIRONMENTS = 2
+DEFAULT_PREFETCH_WORKERS = 4
 
 
 class DropletManager:
@@ -328,64 +330,72 @@ class DropletManager:
         with self._prefetch_lock:
             return dict(self._prefetch_state)
 
-    def _do_prefetch(self, targets: list[str]) -> None:
-        """Background worker: pull images one by one, updating progress."""
-        docker_env = self._docker_environment()
+    def _pull_one(self, challenge_id: str, docker_env: dict[str, str]) -> str:
+        """Pull images for a single challenge. Returns 'pulled', 'skipped', or 'error'."""
+        challenge = self.challenges.get(challenge_id)
+        if challenge is None:
+            return "error"
+        if challenge.status in (ChallengeStatus.running, ChallengeStatus.starting):
+            return "skipped"
 
-        for challenge_id in targets:
-            with self._prefetch_lock:
-                self._prefetch_state["current_id"] = challenge_id
+        compose_src = Path(challenge.root) / "docker-compose.yml"
+        if not compose_src.exists():
+            return "error"
 
-            challenge = self.challenges.get(challenge_id)
-            if challenge is None:
-                with self._prefetch_lock:
-                    self._prefetch_state["current"] += 1
-                    self._prefetch_state["errors"] += 1
-                continue
-            if challenge.status in (ChallengeStatus.running, ChallengeStatus.starting):
-                with self._prefetch_lock:
-                    self._prefetch_state["current"] += 1
-                    self._prefetch_state["skipped"] += 1
-                continue
+        # Skip pull if all referenced images already exist locally
+        images = self._compose_images(compose_src)
+        if self._images_exist_locally(images):
+            logger.info(f"Images already cached for {challenge_id}, skipping pull", extra={"challenge_id": challenge_id})
+            return "skipped"
 
-            compose_src = Path(challenge.root) / "docker-compose.yml"
-            if not compose_src.exists():
-                with self._prefetch_lock:
-                    self._prefetch_state["current"] += 1
-                    self._prefetch_state["errors"] += 1
-                continue
-
-            try:
-                logger.info(f"Pre-pulling images for {challenge_id}", extra={"challenge_id": challenge_id})
-                result = subprocess.run(
-                    ["docker", "compose", "-f", str(compose_src), "pull"],
-                    cwd=str(Path(challenge.root)),
-                    env=docker_env,
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
+        try:
+            logger.info(f"Pre-pulling images for {challenge_id}", extra={"challenge_id": challenge_id})
+            result = subprocess.run(
+                ["docker", "compose", "-f", str(compose_src), "pull"],
+                cwd=str(Path(challenge.root)),
+                env=docker_env,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if result.returncode == 0:
+                return "pulled"
+            else:
+                stderr_tail = (result.stderr or "").strip().split("\n")[-3:]
+                logger.warning(
+                    f"Prefetch failed for {challenge_id}: {' | '.join(stderr_tail)}",
+                    extra={"challenge_id": challenge_id},
                 )
+                return "error"
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Prefetch timeout for {challenge_id}", extra={"challenge_id": challenge_id})
+            return "error"
+        except Exception as exc:
+            logger.warning(f"Prefetch error for {challenge_id}: {exc}", extra={"challenge_id": challenge_id})
+            return "error"
+
+    def _do_prefetch(self, targets: list[str]) -> None:
+        """Background worker: pull images concurrently with a thread pool."""
+        docker_env = self._docker_environment()
+        workers = int(os.getenv("DROPLET_PREFETCH_WORKERS", str(DEFAULT_PREFETCH_WORKERS)))
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(self._pull_one, cid, docker_env): cid for cid in targets}
+            for future in as_completed(futures):
+                cid = futures[future]
+                try:
+                    result = future.result()
+                except Exception:
+                    result = "error"
+
                 with self._prefetch_lock:
                     self._prefetch_state["current"] += 1
-                    if result.returncode == 0:
+                    if result == "pulled":
                         self._prefetch_state["pulled"] += 1
+                    elif result == "skipped":
+                        self._prefetch_state["skipped"] += 1
                     else:
                         self._prefetch_state["errors"] += 1
-                        stderr_tail = (result.stderr or "").strip().split("\n")[-3:]
-                        logger.warning(
-                            f"Prefetch failed for {challenge_id}: {' | '.join(stderr_tail)}",
-                            extra={"challenge_id": challenge_id},
-                        )
-            except subprocess.TimeoutExpired:
-                with self._prefetch_lock:
-                    self._prefetch_state["current"] += 1
-                    self._prefetch_state["errors"] += 1
-                logger.warning(f"Prefetch timeout for {challenge_id}", extra={"challenge_id": challenge_id})
-            except Exception as exc:
-                with self._prefetch_lock:
-                    self._prefetch_state["current"] += 1
-                    self._prefetch_state["errors"] += 1
-                logger.warning(f"Prefetch error for {challenge_id}: {exc}", extra={"challenge_id": challenge_id})
 
         with self._prefetch_lock:
             self._prefetch_state["running"] = False
