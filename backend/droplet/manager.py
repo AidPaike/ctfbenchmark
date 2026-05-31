@@ -328,6 +328,34 @@ class DropletManager:
         with self._prefetch_lock:
             return dict(self._prefetch_state)
 
+    @staticmethod
+    def _compose_images(compose_src: Path) -> list[str]:
+        """Extract image names from a docker-compose.yml (ignores build-only services)."""
+        try:
+            import yaml
+
+            with open(compose_src) as f:
+                data = yaml.safe_load(f) or {}
+            services = data.get("services", {})
+            return [s["image"] for s in services.values() if isinstance(s, dict) and "image" in s]
+        except Exception:
+            return []
+
+    @staticmethod
+    def _images_exist_locally(images: list[str]) -> bool:
+        """Check whether all images already exist in local Docker."""
+        if not images:
+            return True  # nothing to pull (all build-based)
+        for img in images:
+            result = subprocess.run(
+                ["docker", "image", "inspect", img],
+                capture_output=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                return False
+        return True
+
     def _do_prefetch(self, targets: list[str]) -> None:
         """Background worker: pull images one by one, updating progress."""
         docker_env = self._docker_environment()
@@ -353,6 +381,15 @@ class DropletManager:
                 with self._prefetch_lock:
                     self._prefetch_state["current"] += 1
                     self._prefetch_state["errors"] += 1
+                continue
+
+            # Skip pull if all referenced images already exist locally
+            images = self._compose_images(compose_src)
+            if self._images_exist_locally(images):
+                with self._prefetch_lock:
+                    self._prefetch_state["current"] += 1
+                    self._prefetch_state["skipped"] += 1
+                logger.info(f"Images already cached for {challenge_id}, skipping pull", extra={"challenge_id": challenge_id})
                 continue
 
             try:
