@@ -38,11 +38,17 @@ def build_parser() -> argparse.ArgumentParser:
     report_event.add_argument("message")
     report_event.add_argument("--level", default="info")
 
-    preflight = subparsers.add_parser("preflight", help="Start challenges and fail if any challenge is not ready")
+    preflight = subparsers.add_parser(
+        "preflight", help="Start challenges and fail if any challenge is not ready"
+    )
     preflight.add_argument("--challenge-id", action="append", dest="challenge_ids")
-    preflight.add_argument("--no-start", action="store_true", help="Only check current status; do not call start-all")
+    preflight.add_argument(
+        "--no-start", action="store_true", help="Only check current status; do not call start-all"
+    )
 
-    start_all = subparsers.add_parser("start-all", help="Start all or selected challenge environments")
+    start_all = subparsers.add_parser(
+        "start-all", help="Start all or selected challenge environments"
+    )
     start_all.add_argument("--challenge-id", action="append", dest="challenge_ids")
 
     subparsers.add_parser("stop-all", help="Stop all running challenge environments")
@@ -68,7 +74,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("compat-challenges", help="List Tencent-compatible challenges")
     compat_hint = subparsers.add_parser("compat-hint", help="Get a Tencent-compatible hint")
     compat_hint.add_argument("challenge_code")
-    compat_submit = subparsers.add_parser("compat-submit", help="Submit a Tencent-compatible answer")
+    compat_submit = subparsers.add_parser(
+        "compat-submit", help="Submit a Tencent-compatible answer"
+    )
     compat_submit.add_argument("challenge_code")
     compat_submit.add_argument("answer")
     return parser
@@ -82,13 +90,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         return _doctor(args)
 
-    with DropletClient(base_url=args.base_url, api_token=args.api_token, timeout=args.timeout) as client:
+    with DropletClient(
+        base_url=args.base_url, api_token=args.api_token, timeout=args.timeout
+    ) as client:
         if args.command == "challenges":
             return _print(client.list_challenges())
         if args.command == "events":
             return _print(client.list_events(args.challenge_id, args.limit))
         if args.command == "report-event":
-            return _print(client.report_event(args.challenge_id, args.event_type, args.message, level=args.level))
+            return _print(
+                client.report_event(
+                    args.challenge_id, args.event_type, args.message, level=args.level
+                )
+            )
         if args.command == "preflight":
             return _preflight(client, args.challenge_ids, args.no_start)
         if args.command == "start-all":
@@ -132,7 +146,9 @@ def _doctor(args: argparse.Namespace) -> int:
         "backend": False,
     }
     try:
-        response = httpx.get(f"{args.base_url.rstrip('/')}/api/health", timeout=3.0, trust_env=False)
+        response = httpx.get(
+            f"{args.base_url.rstrip('/')}/api/health", timeout=3.0, trust_env=False
+        )
         checks["backend"] = response.status_code == 200
         checks["health"] = response.json() if response.status_code == 200 else response.text
     except Exception as exc:
@@ -170,7 +186,9 @@ def _preflight(client: DropletClient, challenge_ids: list[str] | None, no_start:
                 )
             except Exception as exc:
                 start_result["errors"][challenge_id] = str(exc)
-                print(f"[{index}/{total}] {challenge_id} 启动失败: {exc}", file=sys.stderr, flush=True)
+                print(
+                    f"[{index}/{total}] {challenge_id} 启动失败: {exc}", file=sys.stderr, flush=True
+                )
 
     challenges = _wait_for_preflight_ready(
         client,
@@ -225,7 +243,9 @@ def _wait_for_preflight_ready(
     deadline = time.monotonic() + max(timeout, 0)
     challenges = client.list_challenges()
     while timeout > 0 and time.monotonic() < deadline:
-        selected_challenges = [challenge for challenge in challenges if challenge.get("id") in selected]
+        selected_challenges = [
+            challenge for challenge in challenges if challenge.get("id") in selected
+        ]
         pending = [
             challenge
             for challenge in selected_challenges

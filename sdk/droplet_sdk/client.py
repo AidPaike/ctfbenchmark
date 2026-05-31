@@ -34,7 +34,9 @@ class DropletClient:
         """Get one challenge with current runtime state."""
         return self._request("GET", f"/api/challenges/{challenge_id}")
 
-    def list_events(self, challenge_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    def list_events(
+        self, challenge_id: str | None = None, limit: int = 200
+    ) -> list[dict[str, Any]]:
         """List platform-visible audit events."""
         params = {"limit": limit}
         if challenge_id:
@@ -80,7 +82,9 @@ class DropletClient:
 
     def submit_answer(self, challenge_id: str, answer: str) -> dict[str, Any]:
         """Record a submitted flag or answer. It is judged only if the challenge config provides a judge."""
-        return self._request("POST", f"/api/challenges/{challenge_id}/submit", json={"answer": answer})
+        return self._request(
+            "POST", f"/api/challenges/{challenge_id}/submit", json={"answer": answer}
+        )
 
     def view_hint(self, challenge_id: str) -> dict[str, Any]:
         """Request a hint for a challenge. First use reduces score by 10%."""
@@ -101,7 +105,9 @@ class DropletClient:
         return self._request("GET", f"/api/v1/hint/{challenge_code}")
 
     def compat_submit_answer(self, challenge_code: str, answer: str) -> dict[str, Any]:
-        return self._request("POST", "/api/v1/answer", json={"challenge_code": challenge_code, "answer": answer})
+        return self._request(
+            "POST", "/api/v1/answer", json={"challenge_code": challenge_code, "answer": answer}
+        )
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         last_error: Exception | None = None
