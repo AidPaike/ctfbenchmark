@@ -371,14 +371,21 @@ class DropletManager:
                         self._prefetch_state["pulled"] += 1
                     else:
                         self._prefetch_state["errors"] += 1
+                        stderr_tail = (result.stderr or "").strip().split("\n")[-3:]
+                        logger.warning(
+                            f"Prefetch failed for {challenge_id}: {' | '.join(stderr_tail)}",
+                            extra={"challenge_id": challenge_id},
+                        )
             except subprocess.TimeoutExpired:
                 with self._prefetch_lock:
                     self._prefetch_state["current"] += 1
                     self._prefetch_state["errors"] += 1
-            except Exception:
+                logger.warning(f"Prefetch timeout for {challenge_id}", extra={"challenge_id": challenge_id})
+            except Exception as exc:
                 with self._prefetch_lock:
                     self._prefetch_state["current"] += 1
                     self._prefetch_state["errors"] += 1
+                logger.warning(f"Prefetch error for {challenge_id}: {exc}", extra={"challenge_id": challenge_id})
 
         with self._prefetch_lock:
             self._prefetch_state["running"] = False
