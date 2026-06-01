@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
@@ -56,7 +58,38 @@ def _prestart_ids() -> list[str] | None:
     return [item.strip().lower() for item in raw.split(",") if item.strip()]
 
 
-app = FastAPI(title="Droplet", version="0.6.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Startup: load challenges, prefetch images, prestart. Shutdown: cleanup."""
+    setup_logging()
+    init_db()
+    migrate_jsonl_to_sqlite(DEFAULT_EVENT_LOG)
+    manager.load_tasks()
+    logger.info("Droplet startup complete", extra={"challenge_count": len(manager.challenges)})
+    app.state.prestart = None
+
+    import threading
+
+    def _deferred_start() -> None:
+        import time as _time
+
+        if _env_enabled("DROPLET_PREFETCH_IMAGES", default=True):
+            logger.info("Pre-pulling Docker images...")
+            manager.prefetch_images()
+            while manager.prefetch_progress().get("running"):
+                _time.sleep(1)
+            logger.info("Image prefetch complete.")
+
+        if _env_enabled("DROPLET_PRESTART_CHALLENGES", default=True):
+            prestart_ids = _prestart_ids()
+            app.state.prestart = manager.start_all(prestart_ids)
+
+    threading.Thread(target=_deferred_start, daemon=True).start()
+    yield
+    manager.shutdown()
+
+
+app = FastAPI(title="Droplet", version="0.6.0", lifespan=lifespan)
 
 # [4] CORS restricted to the frontend origin only; not open to arbitrary domains
 # CORS 仅限前端来源；不对任意域名开放
@@ -86,43 +119,6 @@ async def log_requests(request: Request, call_next):
         },
     )
     return response
-
-
-# [5] FastAPI lifecycle hooks: load challenges on startup, graceful shutdown on exit
-# FastAPI 生命周期钩子：启动时加载题目，退出时优雅关闭
-@app.on_event("startup")
-def startup() -> None:
-    setup_logging()
-    init_db()
-    migrate_jsonl_to_sqlite(DEFAULT_EVENT_LOG)
-    manager.load_tasks()
-    logger.info("Droplet startup complete", extra={"challenge_count": len(manager.challenges)})
-    app.state.prestart = None
-
-    import threading
-
-    def _deferred_start() -> None:
-        import time
-
-        # Phase 1: Prefetch images (always runs unless explicitly disabled)
-        if _env_enabled("DROPLET_PREFETCH_IMAGES", default=True):
-            logger.info("Pre-pulling Docker images...")
-            manager.prefetch_images()
-            while manager.prefetch_progress().get("running"):
-                time.sleep(1)
-            logger.info("Image prefetch complete.")
-
-        # Phase 2: Pre-start challenges (only if enabled)
-        if _env_enabled("DROPLET_PRESTART_CHALLENGES", default=True):
-            prestart_ids = _prestart_ids()
-            app.state.prestart = manager.start_all(prestart_ids)
-
-    threading.Thread(target=_deferred_start, daemon=True).start()
-
-
-@app.on_event("shutdown")
-def shutdown() -> None:
-    manager.shutdown()
 
 
 @app.get("/api/health")
