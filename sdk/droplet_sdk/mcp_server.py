@@ -5,7 +5,7 @@ from droplet_sdk.client import DropletClient
 try:
     from fastmcp import FastMCP
 except ImportError as exc:  # pragma: no cover
-    raise SystemExit("Install MCP support with: pip install -e '.[mcp]'") from exc
+    raise ImportError("Install MCP support with: pip install -e '.[mcp]'") from exc
 
 
 mcp = FastMCP("Droplet")
