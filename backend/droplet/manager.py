@@ -85,7 +85,15 @@ class DropletManager:
         )
         self._start_lock = threading.Lock()
         self._prefetch_lock = threading.Lock()
-        self._prefetch_state: dict[str, Any] = {"running": False, "total": 0, "current": 0, "pulled": 0, "skipped": 0, "errors": 0, "current_id": ""}
+        self._prefetch_state: dict[str, Any] = {
+            "running": False,
+            "total": 0,
+            "current": 0,
+            "pulled": 0,
+            "skipped": 0,
+            "errors": 0,
+            "current_id": "",
+        }
 
         self.work_root.mkdir(parents=True, exist_ok=True)
         # [4] Cleanup leftover directories from a previous unclean shutdown to avoid disk leaks or zombie Docker projects
@@ -356,7 +364,9 @@ class DropletManager:
                 continue
 
             try:
-                logger.info(f"Pre-pulling images for {challenge_id}", extra={"challenge_id": challenge_id})
+                logger.info(
+                    f"Pre-pulling images for {challenge_id}", extra={"challenge_id": challenge_id}
+                )
                 result = subprocess.run(
                     ["docker", "compose", "-f", str(compose_src), "pull"],
                     cwd=str(Path(challenge.root)),
@@ -380,12 +390,17 @@ class DropletManager:
                 with self._prefetch_lock:
                     self._prefetch_state["current"] += 1
                     self._prefetch_state["errors"] += 1
-                logger.warning(f"Prefetch timeout for {challenge_id}", extra={"challenge_id": challenge_id})
+                logger.warning(
+                    f"Prefetch timeout for {challenge_id}", extra={"challenge_id": challenge_id}
+                )
             except Exception as exc:
                 with self._prefetch_lock:
                     self._prefetch_state["current"] += 1
                     self._prefetch_state["errors"] += 1
-                logger.warning(f"Prefetch error for {challenge_id}: {exc}", extra={"challenge_id": challenge_id})
+                logger.warning(
+                    f"Prefetch error for {challenge_id}: {exc}",
+                    extra={"challenge_id": challenge_id},
+                )
 
         with self._prefetch_lock:
             self._prefetch_state["running"] = False

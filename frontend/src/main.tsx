@@ -260,15 +260,14 @@ function App() {
         </div>
       </header>
 
-      {prefetch?.running && (
+      {prefetchProgress?.running && (
         <div className="prefetchBanner">
           <RefreshCw size={15} className="prefetchSpin" />
           <span>镜像预热</span>
           <div className="prefetchBar">
-            <div className="prefetchFill" style={{ width: `${prefetch.total ? (prefetch.current / prefetch.total) * 100 : 0}%` }} />
+            <div className="prefetchFill" style={{ width: `${prefetchProgress.total ? (prefetchProgress.current / prefetchProgress.total) * 100 : 0}%` }} />
           </div>
-          <em>{prefetch.current}/{prefetch.total}</em>
-          <span className="prefetchDetail">{prefetch.current_id.toUpperCase()}{prefetch.pulled > 0 ? ` · 已拉取 ${prefetch.pulled}` : ""}</span>
+          <em>{prefetchProgress.current}/{prefetchProgress.total}</em>
         </div>
       )}
 

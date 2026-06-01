@@ -141,7 +141,9 @@ class DatasetLoader:
                     for d in sorted(resolved.iterdir())
                     if d.is_dir() and (d / "benchmark.json").exists()
                 )
-                self._dataset_totals[dataset_id] = self._dataset_totals.get(dataset_id, 0) + raw_count
+                self._dataset_totals[dataset_id] = (
+                    self._dataset_totals.get(dataset_id, 0) + raw_count
+                )
                 config: dict[str, Any] = {
                     "type": "xbow",
                     "path": resolved.name,
@@ -166,7 +168,9 @@ class DatasetLoader:
                     for d in sorted(sub_path.iterdir())
                     if d.is_dir() and (d / "benchmark.json").exists()
                 )
-                self._dataset_totals[dataset_id] = self._dataset_totals.get(dataset_id, 0) + raw_count
+                self._dataset_totals[dataset_id] = (
+                    self._dataset_totals.get(dataset_id, 0) + raw_count
+                )
                 config = {
                     "type": "xbow",
                     "path": sub_path,
