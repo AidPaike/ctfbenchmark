@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-from droplet.events import EventStore
 from droplet.manager import DropletManager, _normalise_no_proxy, _normalise_proxy, _ratio
 from droplet.models import Challenge, ChallengeStatus
 
 
 # ── Helper ──────────────────────────────────────────────────────────
+
 
 def _make_challenge(**kwargs):
     defaults = {
@@ -30,6 +29,7 @@ def _make_challenge(**kwargs):
 
 
 # ── Module-level helpers ─────────────────────────────────────────────
+
 
 def test_normalise_proxy_none():
     assert _normalise_proxy(None) is None
@@ -56,6 +56,7 @@ def test_ratio_normal():
 
 
 # ── Manager tests (with mocked Docker) ──────────────────────────────
+
 
 @pytest.fixture
 def manager(tmp_path, isolated_database):

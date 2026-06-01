@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import patch, MagicMock
-from pathlib import Path
 
 
 @pytest.fixture
@@ -18,9 +16,11 @@ def client(tmp_path, isolated_database, monkeypatch):
     # Re-import to get a fresh manager with the new env vars
     import importlib
     import droplet.app as app_module
+
     importlib.reload(app_module)
 
     from fastapi.testclient import TestClient
+
     return TestClient(app_module.app)
 
 

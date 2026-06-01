@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 from droplet.database import (
     AppState,
     ChallengeProgress,
@@ -39,7 +38,7 @@ def test_get_engine_returns_same_instance(monkeypatch, isolated_database):
 
 
 def test_reset_engine_clears_cache(monkeypatch, isolated_database):
-    e1 = get_engine()
+    get_engine()
     reset_engine()
     e2 = get_engine()
     # After reset, a new engine is created (same path, different object is also fine)
@@ -115,8 +114,23 @@ def test_migrate_jsonl_to_sqlite(tmp_path, isolated_database):
     init_db()
     jsonl_path = tmp_path / "events.jsonl"
     events = [
-        {"id": "e1", "timestamp": "2026-01-01T00:00:00Z", "level": "info", "event_type": "test", "message": "msg1", "data": {}},
-        {"id": "e2", "timestamp": "2026-01-01T00:01:00Z", "level": "error", "event_type": "err", "message": "msg2", "challenge_id": "C1", "data": {"a": 1}},
+        {
+            "id": "e1",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "level": "info",
+            "event_type": "test",
+            "message": "msg1",
+            "data": {},
+        },
+        {
+            "id": "e2",
+            "timestamp": "2026-01-01T00:01:00Z",
+            "level": "error",
+            "event_type": "err",
+            "message": "msg2",
+            "challenge_id": "C1",
+            "data": {"a": 1},
+        },
     ]
     jsonl_path.write_text("\n".join(json.dumps(e) for e in events))
     count = migrate_jsonl_to_sqlite(jsonl_path)
