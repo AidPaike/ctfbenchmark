@@ -45,7 +45,7 @@ python -m datasets.preprocessor --raw-path /path/to/raw --output-dir datasets/dr
 
 | 文件 | 职责 |
 |---|---|
-| `app.py` | FastAPI 入口。模块级单例 `DropletManager`。启动流程：`setup_logging()` → `init_db()` → `migrate_jsonl_to_sqlite()` → `manager.load_tasks()` → 后台线程执行镜像预热 + 预启动。 |
+| `app.py` | FastAPI 入口。模块级单例 `DropletManager`。使用 `lifespan` 上下文管理器处理启动/关闭。启动流程：`setup_logging()` → `init_db()` → `migrate_jsonl_to_sqlite()` → `manager.load_tasks()` → 后台线程执行镜像预热 + 预启动。 |
 | `manager.py` | 核心编排。生命周期：发现 → 预热镜像 → 启动（异步） → 健康检查 → 停止 → 清理。模板从 `datasets/` 复制到 `data/work/challenges/<id>/` 再运行 Docker Compose。 |
 | `models.py` | `Challenge` 模型，三组字段：静态元数据、运行时状态、提交状态。`public()` 脱敏。 |
 | `database.py` | SQLite + SQLModel。`get_engine()` 按路径缓存，`reset_engine()` 清除。 |
@@ -90,6 +90,14 @@ SQLite 文件：`data/droplet.db`
 - **看门狗**：后台线程 10s 轮询，检测容器外部杀死或服务不可达。
 - **镜像预热**：`prefetch_images()` 后台线程执行 `docker compose pull`，只拉镜像不启动容器。
 - **认证**：`require_auth()` 接受 `droplet_dev_admin` 或 `droplet_` 前缀 token。
+- **生命周期**：使用 FastAPI `lifespan` 上下文管理器（非废弃的 `@app.on_event`）。
+
+## CI/CD
+
+`.github/workflows/ci.yml` 在 push/PR 到 `develop`/`master` 时自动运行：
+- **Lint**：`ruff check` + `ruff format --check`
+- **Test**：`pytest tests/unit/`（114 个测试）
+- **Frontend**：`tsc --noEmit` + `npm run build`
 
 ## 环境变量
 
