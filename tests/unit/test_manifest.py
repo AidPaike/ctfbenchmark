@@ -1,8 +1,12 @@
 from pathlib import Path
 
+import pytest
 from droplet.manager import DropletManager
 
+_DATASETS_EXIST = Path("datasets/xbow/challenges").is_dir()
 
+
+@pytest.mark.skipif(not _DATASETS_EXIST, reason="Dataset files not present (gitignored in CI)")
 def test_demo_xbow_challenges_are_discovered() -> None:
     # Uses root droplet.yaml (schema_version: 2) which discovers all datasets
     manager = DropletManager(dataset_root=Path("datasets"))
@@ -18,6 +22,7 @@ def test_demo_xbow_challenges_are_discovered() -> None:
         assert challenge.judge_mode == "record_only"
 
 
+@pytest.mark.skipif(not _DATASETS_EXIST, reason="Dataset files not present (gitignored in CI)")
 def test_demo_xbow_templates_do_not_contain_machine_specific_proxy() -> None:
     root = Path("datasets/demo-xbow/challenges")
     forbidden = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "192.168.3.67")
