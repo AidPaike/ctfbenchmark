@@ -1,4 +1,10 @@
 from droplet_sdk.client import DropletClient
-from droplet_sdk.mcp_server import mcp
 
-__all__ = ["DropletClient", "mcp"]
+__all__ = ["DropletClient"]
+
+try:
+    from droplet_sdk.mcp_server import mcp
+
+    __all__.append("mcp")
+except ImportError:
+    pass
