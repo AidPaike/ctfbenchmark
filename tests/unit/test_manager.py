@@ -6,26 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 from droplet.manager import DropletManager, _normalise_no_proxy, _normalise_proxy, _ratio
-from droplet.models import Challenge, ChallengeStatus
-
-
-# ── Helper ──────────────────────────────────────────────────────────
-
-
-def _make_challenge(**kwargs):
-    defaults = {
-        "id": "TEST-001",
-        "title": "Test",
-        "description": "desc",
-        "category": "web",
-        "task_type": "ctf",
-        "difficulty": "easy",
-        "root": "/tmp/test",
-        "compose_path": "/tmp/test/docker-compose.yml",
-        "expose": [{"container_port": 80}],
-    }
-    defaults.update(kwargs)
-    return Challenge(**defaults)
+from droplet.models import ChallengeStatus
+from tests.helpers import make_challenge
 
 
 # ── Module-level helpers ─────────────────────────────────────────────
@@ -100,11 +82,11 @@ def test_stats_empty(manager):
 
 
 def test_stats_with_challenges(manager):
-    c1 = _make_challenge(id="C1")
+    c1 = make_challenge(id="C1")
     c1.solved = True
-    c2 = _make_challenge(id="C2")
+    c2 = make_challenge(id="C2")
     c2.status = ChallengeStatus.running
-    c3 = _make_challenge(id="C3")
+    c3 = make_challenge(id="C3")
     manager.challenges = {"C1": c1, "C2": c2, "C3": c3}
 
     s = manager.stats()
@@ -114,7 +96,7 @@ def test_stats_with_challenges(manager):
 
 
 def test_submit_not_running(manager):
-    c = _make_challenge()
+    c = make_challenge(id="TEST-001")
     c.status = ChallengeStatus.not_started
     manager.challenges = {"TEST-001": c}
     with pytest.raises(ValueError, match="not running"):
@@ -122,7 +104,7 @@ def test_submit_not_running(manager):
 
 
 def test_submit_running(manager):
-    c = _make_challenge()
+    c = make_challenge(id="TEST-001")
     c.status = ChallengeStatus.running
     manager.challenges = {"TEST-001": c}
     result = manager.submit("TEST-001", "FLAG{test}")
@@ -132,14 +114,14 @@ def test_submit_running(manager):
 
 
 def test_hint_not_available(manager):
-    c = _make_challenge(hint=None)
+    c = make_challenge(id="TEST-001", hint=None)
     manager.challenges = {"TEST-001": c}
     with pytest.raises(ValueError, match="not available"):
         manager.hint("TEST-001")
 
 
 def test_hint_first_use(manager):
-    c = _make_challenge(hint="Some hint text")
+    c = make_challenge(id="TEST-001", hint="Some hint text")
     manager.challenges = {"TEST-001": c}
     result = manager.hint("TEST-001")
     assert result["content"] == "Some hint text"
@@ -150,7 +132,7 @@ def test_hint_first_use(manager):
 
 
 def test_hint_second_use(manager):
-    c = _make_challenge(hint="Some hint text")
+    c = make_challenge(id="TEST-001", hint="Some hint text")
     c.hint_viewed = True
     c.hint_penalty = -0.1
     manager.challenges = {"TEST-001": c}
@@ -167,9 +149,9 @@ def test_prefetch_progress_not_running(manager):
 
 
 def test_reset_all_challenges(manager):
-    c1 = _make_challenge(id="C1")
+    c1 = make_challenge(id="C1")
     c1.solved = True
-    c2 = _make_challenge(id="C2")
+    c2 = make_challenge(id="C2")
     manager.challenges = {"C1": c1, "C2": c2}
     result = manager.reset_all_challenges()
     assert "new_session_id" in result
@@ -177,7 +159,7 @@ def test_reset_all_challenges(manager):
 
 
 def test_stop_challenge_allows_solved_with_runtime(manager, monkeypatch):
-    c = _make_challenge()
+    c = make_challenge(id="TEST-001")
     c.status = ChallengeStatus.solved
     c.solved = True
     c.compose_project = "droplet_TEST-001"
@@ -196,7 +178,7 @@ def test_stop_challenge_allows_solved_with_runtime(manager, monkeypatch):
 
 
 def test_submit_correct_flag(manager):
-    c = _make_challenge(expected_flag="flag{secret}")
+    c = make_challenge(id="TEST-001", expected_flag="flag{secret}")
     c.status = ChallengeStatus.running
     manager.challenges = {"TEST-001": c}
 
@@ -214,7 +196,7 @@ def test_submit_correct_flag(manager):
 
 
 def test_submit_wrong_flag(manager):
-    c = _make_challenge(expected_flag="flag{secret}")
+    c = make_challenge(id="TEST-001", expected_flag="flag{secret}")
     c.status = ChallengeStatus.running
     manager.challenges = {"TEST-001": c}
 
@@ -231,7 +213,7 @@ def test_submit_wrong_flag(manager):
 
 
 def test_submit_no_flag_record_only(manager):
-    c = _make_challenge(expected_flag=None)
+    c = make_challenge(id="TEST-001", expected_flag=None)
     c.status = ChallengeStatus.running
     manager.challenges = {"TEST-001": c}
 
@@ -246,7 +228,7 @@ def test_submit_no_flag_record_only(manager):
 
 
 def test_submit_already_solved(manager):
-    c = _make_challenge(expected_flag="flag{secret}")
+    c = make_challenge(id="TEST-001", expected_flag="flag{secret}")
     c.status = ChallengeStatus.running
     c.solved = True
     c.score = 1.0
@@ -261,7 +243,7 @@ def test_submit_already_solved(manager):
 
 
 def test_submit_correct_flag_with_hint_penalty(manager):
-    c = _make_challenge(expected_flag="flag{secret}", hint="Some hint")
+    c = make_challenge(id="TEST-001", expected_flag="flag{secret}", hint="Some hint")
     c.status = ChallengeStatus.running
     c.hint_viewed = True
     c.hint_penalty = -0.2
@@ -275,7 +257,7 @@ def test_submit_correct_flag_with_hint_penalty(manager):
 
 
 def test_submit_flag_case_sensitive(manager):
-    c = _make_challenge(expected_flag="flag{Secret}")
+    c = make_challenge(id="TEST-001", expected_flag="flag{Secret}")
     c.status = ChallengeStatus.running
     manager.challenges = {"TEST-001": c}
 

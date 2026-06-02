@@ -9,26 +9,27 @@
 |------|------|
 | 后端 API | FastAPI + SQLite，认证改为精确 Bearer token |
 | Docker 生命周期 | 运行态按 `compose_project/work_dir` 管理，已解题环境仍可停止 |
-| 前端 | TypeScript 构建通过 |
+| 前端 | TypeScript 类型检查通过 |
 | SDK/CLI/MCP | 保持原有接口 |
 | 数据预处理器 | 已纳入包发现和 CI lint 范围 |
+| 测试 | 单元测试与轻量 integration 已统一运行；CI 纳入 API contract |
 | 文档 | README/CLAUDE 与当前判题、预热、鉴权行为同步 |
 
 ## 已验证
 
 ```bash
-PYTHONPATH=backend:sdk python -m pytest tests/unit tests/integration/test_api_contract.py -q
+PYTHONPATH=backend:sdk python -m pytest tests/unit tests/integration -q
 python -m ruff check backend sdk datasets/preprocessor tests
 python -m ruff format --check backend sdk datasets/preprocessor tests
-cd frontend && npm run build
+cd frontend && npx tsc --noEmit
 ```
 
 结果：
 
-- `146 passed`
+- `164 passed, 3 skipped`
 - `ruff check`: 通过
 - `ruff format --check`: 通过
-- `frontend build`: 通过
+- `frontend tsc --noEmit`: 通过
 
 ## 仍需关注
 

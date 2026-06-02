@@ -5,7 +5,7 @@
 set -euo pipefail
 
 API="${1:-http://127.0.0.1:1349}"
-TOKEN="${2:-droplet_dev_admin}"
+TOKEN="${2:-${DROPLET_API_TOKEN:-droplet_dev_admin}}"
 
 # Wait for API to be ready
 for i in $(seq 1 30); do

@@ -45,7 +45,7 @@ python -m datasets.preprocessor --raw-path /path/to/raw --output-dir datasets/dr
 
 | 文件 | 职责 |
 |---|---|
-| `app.py` | FastAPI 入口。模块级单例 `DropletManager`。使用 `lifespan` 上下文管理器处理启动/关闭。启动流程：`setup_logging()` → `init_db()` → `migrate_jsonl_to_sqlite()` → `manager.load_tasks()` → 后台线程执行镜像预热 + 预启动。 |
+| `app.py` | FastAPI 入口。模块级单例 `DropletManager`。使用 `lifespan` 上下文管理器处理启动/关闭。启动流程：`setup_logging()` → `init_db()` → `migrate_jsonl_to_sqlite()` → `manager.load_tasks()` → 后台线程执行镜像预热；设置 `DROPLET_PRESTART_CHALLENGES=1` 后再预启动题目。 |
 | `manager.py` | 核心编排。生命周期：发现 → 预热镜像 → 启动（异步） → 健康检查 → 停止 → 清理。模板从 `datasets/` 复制到 `data/work/challenges/<id>/` 再运行 Docker Compose。 |
 | `models.py` | `Challenge` 模型，三组字段：静态元数据、运行时状态、提交状态。`public()` 脱敏。 |
 | `database.py` | SQLite + SQLModel。`get_engine()` 按路径缓存，`reset_engine()` 清除。 |
@@ -96,7 +96,7 @@ SQLite 文件：`data/droplet.db`
 
 `.github/workflows/ci.yml` 在 push/PR 到 `develop`/`master` 时自动运行：
 - **Lint**：`ruff check` + `ruff format --check`
-- **Test**：`pytest tests/unit/`；轻量 API 契约测试为 `tests/integration/test_api_contract.py`
+- **Test**：`pytest tests/unit/ tests/integration/test_api_contract.py`
 - **Frontend**：`tsc --noEmit` + `npm run build`
 
 ## 环境变量
@@ -108,7 +108,8 @@ SQLite 文件：`data/droplet.db`
 | `DROPLET_PUBLIC_HOST` | `127.0.0.1` | 暴露给 Agent 的主机 |
 | `DROPLET_API_TOKEN` | `droplet_dev_admin` | API Bearer token |
 | `DROPLET_DATABASE_PATH` | `data/droplet.db` | SQLite 路径 |
-| `DROPLET_PRESTART_CHALLENGES` | `1` | 启动时自动开始所有题目 |
+| `DROPLET_PRESTART_CHALLENGES` | `0` | 启动时自动开始所有题目 |
+| `DROPLET_PRESTART_IDS` | — | 只预启动指定题目，逗号分隔 |
 | `DROPLET_PREFETCH_IMAGES` | `1` | 启动时预热 Docker 镜像 |
 | `DROPLET_DOCKER_PROXY` | — | Docker build 代理 |
 | `DROPLET_DOCKER_NO_PROXY` | — | 代理绕过列表 |
@@ -145,7 +146,7 @@ datasets:
   - ./datasets/demo-xbow/challenges
 ```
 
-查找顺序：根目录 `droplet.yaml` → `{DROPLET_DATASET_ROOT}/droplet.yaml` → 自动发现。
+查找顺序：显式 `config_path` → `{DROPLET_DATASET_ROOT}/droplet.yaml` → 父目录 `droplet.yaml` → 自动发现。
 
 目录结构：
 

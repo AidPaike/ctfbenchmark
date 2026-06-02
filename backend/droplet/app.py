@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 _time.sleep(1)
             logger.info("Image pre-build complete.")
 
-        if _env_enabled("DROPLET_PRESTART_CHALLENGES", default=True):
+        if _env_enabled("DROPLET_PRESTART_CHALLENGES", default=False):
             prestart_ids = _prestart_ids()
             app.state.prestart = manager.start_all(prestart_ids)
 

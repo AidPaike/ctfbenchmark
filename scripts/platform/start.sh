@@ -10,6 +10,7 @@ export DROPLET_WORK_ROOT="${DROPLET_WORK_ROOT:-${PROJECT_ROOT}/data/work}"
 export DROPLET_PUBLIC_HOST="${DROPLET_PUBLIC_HOST:-127.0.0.1}"
 export DROPLET_DATABASE_PATH="${DROPLET_DATABASE_PATH:-${PROJECT_ROOT}/data/droplet.db}"
 export DROPLET_PRESTART_CHALLENGES="${DROPLET_PRESTART_CHALLENGES:-0}"
+export DROPLET_API_TOKEN="${DROPLET_API_TOKEN:-droplet_dev_admin}"
 export FORCE_COLOR="1"                          # keep ANSI colors in log files
 
 BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
@@ -44,7 +45,12 @@ _check_port() {
   local pids
   pids=$(lsof -ti:"$port" 2>/dev/null || true)
   if [[ -n "$pids" ]]; then
-    echo -e "\e[33m[WARN]\e[0m Port $port is in use (PID: $pids), killing ..."
+    if [[ "${DROPLET_FORCE_KILL_PORTS:-0}" != "1" ]]; then
+      echo -e "\e[31m[ERROR]\e[0m Port $port is already in use (PID: $pids)."
+      echo -e "        Stop that process first, or rerun with DROPLET_FORCE_KILL_PORTS=1."
+      exit 1
+    fi
+    echo -e "\e[33m[WARN]\e[0m Port $port is in use (PID: $pids), force killing because DROPLET_FORCE_KILL_PORTS=1 ..."
     for pid in $pids; do
       kill -9 "$pid" 2>/dev/null || true
     done
@@ -150,7 +156,7 @@ _start_prefetch_progress() {
 
   # Background: Python polls API, writes status to file
   python3 "${PROJECT_ROOT}/scripts/ops/prefetch-tui.py" \
-    "$_PREFETCH_STATUS_FILE" "http://${BACKEND_HOST}:${BACKEND_PORT}" "droplet_dev_admin" \
+    "$_PREFETCH_STATUS_FILE" "http://${BACKEND_HOST}:${BACKEND_PORT}" "$DROPLET_API_TOKEN" \
     >/dev/null 2>&1 &
   _PREFETCH_POLL_PID=$!
 

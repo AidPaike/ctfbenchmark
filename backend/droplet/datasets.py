@@ -60,14 +60,14 @@ class DatasetLoader:
     ) -> dict[str, Challenge]:
         # Config lookup order:
         # 1. Explicit config_path parameter
-        # 2. {dataset_root}/../droplet.yaml (project root)
-        # 3. {dataset_root}/droplet.yaml (legacy)
+        # 2. {dataset_root}/droplet.yaml (single dataset or aggregate dataset root)
+        # 3. {dataset_root}/../droplet.yaml (project root)
         # 4. Auto-discover
         candidates = []
         if config_path is not None:
             candidates.append(config_path)
-        candidates.append(dataset_root.parent / "droplet.yaml")
         candidates.append(dataset_root / "droplet.yaml")
+        candidates.append(dataset_root.parent / "droplet.yaml")
 
         for path in candidates:
             if path.exists():

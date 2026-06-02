@@ -146,6 +146,27 @@ def test_auto_discover_mixed_children(tmp_path: Path) -> None:
     assert loaded["b-001"].title == "Auto-discovered"
 
 
+def test_dataset_root_local_manifest_takes_precedence_over_parent_manifest(tmp_path: Path) -> None:
+    """A single dataset root must not be shadowed by a parent aggregate manifest."""
+    parent = tmp_path / "datasets"
+    suite = parent / "suite-a"
+    _make_challenge(suite / "challenges" / "A-001", "A-001", "Suite A")
+    _make_challenge(parent / "suite-b" / "challenges" / "B-001", "B-001", "Suite B")
+    (suite / "droplet.yaml").write_text(
+        "auto_discover:\n  - type: xbow\n    path: challenges\n    dataset_id: suite-a\n",
+        encoding="utf-8",
+    )
+    (parent / "droplet.yaml").write_text(
+        "auto_discover:\n  - type: xbow\n    path: suite-b/challenges\n    dataset_id: suite-b\n",
+        encoding="utf-8",
+    )
+
+    loaded = DatasetLoader().load(suite, infer_expose=lambda _path: [])
+
+    assert set(loaded) == {"a-001"}
+    assert loaded["a-001"].dataset_id == "suite-a"
+
+
 def test_looks_like_dataset_helper(tmp_path: Path) -> None:
     """_looks_like_dataset correctly identifies dataset directories."""
     assert not _looks_like_dataset(tmp_path)

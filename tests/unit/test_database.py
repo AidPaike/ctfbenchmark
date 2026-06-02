@@ -141,18 +141,16 @@ def test_migrate_jsonl_to_sqlite(tmp_path, isolated_database):
         assert len(stored) == 2
 
 
-def test_migrate_jsonl_skips_if_events_exist(isolated_database):
+def test_migrate_jsonl_skips_if_events_exist(tmp_path, isolated_database):
     init_db()
     engine = get_engine()
     with Session(engine) as session:
         session.add(Event(id="existing", timestamp="t", event_type="x", message="m"))
         session.commit()
-    # Create a dummy JSONL file
-    p = Path("/tmp/test_migrate_skip.jsonl")
+    p = tmp_path / "events.jsonl"
     p.write_text('{"id":"new","timestamp":"t","event_type":"x","message":"m"}\n')
     count = migrate_jsonl_to_sqlite(p)
     assert count == 0
-    p.unlink(missing_ok=True)
 
 
 def test_migrate_jsonl_missing_file(isolated_database):

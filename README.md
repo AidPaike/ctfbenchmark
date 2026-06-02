@@ -63,7 +63,13 @@ datasets:
 ./scripts/platform/start.sh
 ```
 
-自动启动后端和前端；后端加载题目后在后台执行镜像预热与题目预启动。终端顶部显示预热进度。
+自动启动后端和前端；默认执行镜像预热但不自动预启动全部题目，避免一次性占用过多 Docker 资源。终端顶部显示预热进度。
+
+如需启动时预启动题目：
+
+```bash
+DROPLET_PRESTART_CHALLENGES=1 ./scripts/platform/start.sh
+```
 
 ### 开发模式
 
@@ -83,10 +89,12 @@ DROPLET_PRESTART_CHALLENGES=0 ./scripts/dev/dev-backend.sh
 ### 停止
 
 ```bash
-./scripts/platform/stop.sh          # 停止全部
+./scripts/platform/stop.sh          # 停止通过 PID 文件记录的平台进程
 ./scripts/ops/stop-challenges.sh    # 只停题目容器
 ./scripts/ops/clean-runtime.sh      # 清理运行态目录
 ```
+
+如果 PID 文件丢失，`stop.sh` 默认不会按端口强杀进程；确认端口所有者确实是 Droplet 后，可用 `DROPLET_STOP_BY_PORT=1 ./scripts/platform/stop.sh`。
 
 ## Agent 接入
 

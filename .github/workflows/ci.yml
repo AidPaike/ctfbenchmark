@@ -27,8 +27,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]" 2>/dev/null || pip install sqlmodel pyyaml pytest
-      - run: PYTHONPATH=backend:sdk python -m pytest tests/unit/ -v --tb=short
+      - run: pip install -e ".[dev]" 2>/dev/null || pip install fastapi httpx sqlmodel pyyaml pytest
+      - run: PYTHONPATH=backend:sdk python -m pytest tests/unit/ tests/integration/test_api_contract.py -v --tb=short
 
   frontend:
     name: Frontend Build

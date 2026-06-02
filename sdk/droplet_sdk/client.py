@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -9,8 +10,12 @@ import httpx
 
 @dataclass
 class DropletClient:
-    base_url: str = "http://127.0.0.1:1349"
-    api_token: str = "droplet_dev_admin"
+    base_url: str = field(
+        default_factory=lambda: os.getenv("DROPLET_BASE_URL", "http://127.0.0.1:1349")
+    )
+    api_token: str = field(
+        default_factory=lambda: os.getenv("DROPLET_API_TOKEN", "droplet_dev_admin")
+    )
     timeout: float = 60.0
     retries: int = 2
 

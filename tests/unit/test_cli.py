@@ -6,8 +6,11 @@ from droplet_sdk import cli
 
 
 class FakeClient:
+    instances = []
+
     def __init__(self, **kwargs):
         self.kwargs = kwargs
+        self.instances.append(self)
 
     def __enter__(self):
         return self
@@ -77,6 +80,7 @@ class FakeClient:
 
 
 def test_cli_challenges_start_all_and_submit_print_json(monkeypatch, capsys) -> None:
+    FakeClient.instances = []
     monkeypatch.setattr(cli, "DropletClient", FakeClient)
 
     assert cli.main(["challenges"]) == 0
@@ -96,6 +100,7 @@ def test_cli_challenges_start_all_and_submit_print_json(monkeypatch, capsys) -> 
 def test_cli_preflight_returns_success_when_all_selected_challenges_are_ready(
     monkeypatch, capsys
 ) -> None:
+    FakeClient.instances = []
     monkeypatch.setattr(cli, "DropletClient", FakeClient)
 
     assert cli.main(["preflight", "--challenge-id", "xben-001-24"]) == 0
@@ -132,6 +137,7 @@ def test_cli_preflight_returns_failure_when_a_challenge_is_not_ready(monkeypatch
 
 
 def test_cli_events_and_report_event_print_json(monkeypatch, capsys) -> None:
+    FakeClient.instances = []
     monkeypatch.setattr(cli, "DropletClient", FakeClient)
 
     assert cli.main(["events", "--challenge-id", "xben-001-24", "--limit", "10"]) == 0
@@ -143,3 +149,19 @@ def test_cli_events_and_report_event_print_json(monkeypatch, capsys) -> None:
     result = json.loads(capsys.readouterr().out)
     assert result["event_type"] == "agent_event"
     assert result["message"] == "curl target"
+
+
+def test_cli_defaults_to_environment_base_url_and_token(monkeypatch, capsys) -> None:
+    FakeClient.instances = []
+    monkeypatch.setenv("DROPLET_BASE_URL", "http://127.0.0.1:9999")
+    monkeypatch.setenv("DROPLET_API_TOKEN", "configured-secret")
+    monkeypatch.setattr(cli, "DropletClient", FakeClient)
+
+    assert cli.main(["challenges"]) == 0
+    capsys.readouterr()
+
+    assert FakeClient.instances[-1].kwargs == {
+        "base_url": "http://127.0.0.1:9999",
+        "api_token": "configured-secret",
+        "timeout": 600.0,
+    }

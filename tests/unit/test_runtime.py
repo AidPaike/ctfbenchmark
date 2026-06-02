@@ -6,33 +6,9 @@ from pathlib import Path
 
 import yaml
 
-from droplet.models import Challenge
 from droplet import manager as manager_module
 from droplet.manager import DropletManager
-
-
-def _make_challenge(template: Path, challenge_id: str = "demo") -> Challenge:
-    template.mkdir(parents=True, exist_ok=True)
-    (template / "docker-compose.yml").write_text(
-        """services:
-  web:
-    image: nginx:alpine
-    ports:
-      - "8080:80"
-""",
-        encoding="utf-8",
-    )
-    return Challenge(
-        id=challenge_id,
-        title=challenge_id.title(),
-        description="Demo challenge",
-        category="web",
-        task_type="web_ctf_online",
-        difficulty="easy",
-        root=str(template),
-        compose_path=str(template / "docker-compose.yml"),
-        expose=[{"name": "web", "protocol": "http", "service": "web", "container_port": 80}],
-    )
+from tests.helpers import make_challenge
 
 
 def test_start_compose_uses_absolute_compose_file_with_challenge_cwd(tmp_path, monkeypatch) -> None:
@@ -55,7 +31,7 @@ def test_start_compose_uses_absolute_compose_file_with_challenge_cwd(tmp_path, m
     monkeypatch.setattr(
         manager, "_wait_for_endpoints", lambda endpoints: ready_checks.extend(endpoints)
     )
-    challenge = _make_challenge(template)
+    challenge = make_challenge(template)
 
     work_dir = tmp_path / "work" / "challenges" / "demo"
     result = manager._start_compose(challenge, work_dir)
@@ -119,17 +95,7 @@ def test_start_compose_injects_docker_proxy_into_runtime_copy_only(tmp_path, mon
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
     monkeypatch.setattr(manager, "_wait_for_endpoints", lambda endpoints: None)
-    challenge = Challenge(
-        id="demo",
-        title="Demo",
-        description="Demo",
-        category="web",
-        task_type="web_ctf_online",
-        difficulty="easy",
-        root=str(template),
-        compose_path=str(template / "docker-compose.yml"),
-        expose=[{"name": "web", "protocol": "http", "service": "web", "container_port": 80}],
-    )
+    challenge = make_challenge(template)
 
     work_dir = tmp_path / "work" / "challenges" / "demo"
     manager._start_compose(challenge, work_dir)
@@ -168,7 +134,7 @@ def test_start_compose_always_rebuilds_runtime_images(tmp_path, monkeypatch) -> 
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
     monkeypatch.setattr(manager, "_wait_for_endpoints", lambda endpoints: None)
-    challenge = _make_challenge(template)
+    challenge = make_challenge(template)
 
     manager._start_compose(challenge, tmp_path / "work" / "challenges" / "demo")
 
@@ -211,17 +177,7 @@ def test_start_compose_strips_stale_proxy_when_proxy_is_disabled(tmp_path, monke
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
     monkeypatch.setattr(manager, "_wait_for_endpoints", lambda endpoints: None)
-    challenge = Challenge(
-        id="demo",
-        title="Demo",
-        description="Demo",
-        category="web",
-        task_type="web_ctf_online",
-        difficulty="easy",
-        root=str(template),
-        compose_path=str(template / "docker-compose.yml"),
-        expose=[{"name": "web", "protocol": "http", "service": "web", "container_port": 80}],
-    )
+    challenge = make_challenge(template)
 
     work_dir = tmp_path / "work" / "challenges" / "demo"
     manager._start_compose(challenge, work_dir)
@@ -258,17 +214,7 @@ def test_rewrite_ports_uses_zero_host_port_to_avoid_race(tmp_path) -> None:
 """,
         encoding="utf-8",
     )
-    challenge = Challenge(
-        id="demo",
-        title="Demo",
-        description="Demo",
-        category="web",
-        task_type="web_ctf_online",
-        difficulty="easy",
-        root=str(template),
-        compose_path=str(template / "docker-compose.yml"),
-        expose=[{"name": "web", "protocol": "http", "service": "web", "container_port": 80}],
-    )
+    challenge = make_challenge(template)
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
     work_dir = tmp_path / "work" / "challenges" / "demo"
     work_dir.mkdir(parents=True)
@@ -367,13 +313,8 @@ def test_wait_for_endpoints_uses_exponential_backoff(monkeypatch) -> None:
 def test_watchdog_sets_error_when_endpoint_unreachable(monkeypatch) -> None:
     """Watchdog should mark challenge as error if endpoint is down but container is running."""
     manager = DropletManager(dataset_root=Path("."), work_root=Path("."))
-    challenge = Challenge(
+    challenge = make_challenge(
         id="demo",
-        title="Demo",
-        description="Demo",
-        category="web",
-        task_type="web_ctf_online",
-        difficulty="easy",
         root=str(Path(".")),
         compose_path=str(Path(".")),
         expose=[
@@ -405,13 +346,8 @@ def test_watchdog_sets_error_when_endpoint_unreachable(monkeypatch) -> None:
 def test_watchdog_uses_resolved_ports_when_expose_has_no_host_port(monkeypatch) -> None:
     """Runtime ports should be enough for watchdog checks after Docker resolves host ports."""
     manager = DropletManager(dataset_root=Path("."), work_root=Path("."))
-    challenge = Challenge(
+    challenge = make_challenge(
         id="demo",
-        title="Demo",
-        description="Demo",
-        category="web",
-        task_type="web_ctf_online",
-        difficulty="easy",
         root=str(Path(".")),
         compose_path=str(Path(".")),
         expose=[{"name": "web", "protocol": "http", "service": "web", "container_port": 80}],

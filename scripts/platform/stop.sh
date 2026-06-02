@@ -61,8 +61,8 @@ else
   warn "Frontend PID file not found"
 fi
 
-# ── Also clean up any orphaned uvicorn/vite via port ───────────────
-if [[ "${STOPPED}" == "0" ]]; then
+# ── Optional port-based cleanup ────────────────────────────────────
+if [[ "${STOPPED}" == "0" && "${DROPLET_STOP_BY_PORT:-0}" == "1" ]]; then
   info "Searching for Droplet processes by port ..."
   BACKEND_PORT="${BACKEND_PORT:-1349}"
   FRONTEND_PORT="${FRONTEND_PORT:-10349}"
@@ -70,11 +70,14 @@ if [[ "${STOPPED}" == "0" ]]; then
   for port in "$BACKEND_PORT" "$FRONTEND_PORT"; do
     PID=$(lsof -ti:"$port" 2>/dev/null || ss -tlnp 2>/dev/null | grep ":$port " | sed 's/.*pid=\([0-9]*\).*/\1/' | head -1 || true)
     if [[ -n "$PID" ]] && kill -0 "$PID" 2>/dev/null; then
-      info "Killing process on port $port (PID $PID)"
+      info "Force killing process on port $port (PID $PID)"
       kill -9 "$PID" 2>/dev/null || true
       STOPPED=1
     fi
   done
+elif [[ "${STOPPED}" == "0" ]]; then
+  warn "No PID file process found; port-based force stop is disabled"
+  warn "Set DROPLET_STOP_BY_PORT=1 only when you have verified the port owner is Droplet"
 fi
 
 # ── Summary ────────────────────────────────────────────────────────

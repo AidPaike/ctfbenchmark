@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import time
@@ -14,8 +15,10 @@ from droplet_sdk.client import DropletClient
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Droplet benchmark platform CLI")
-    parser.add_argument("--base-url", default="http://127.0.0.1:1349")
-    parser.add_argument("--api-token", default="droplet_dev_admin")
+    parser.add_argument(
+        "--base-url", default=os.getenv("DROPLET_BASE_URL", "http://127.0.0.1:1349")
+    )
+    parser.add_argument("--api-token", default=os.getenv("DROPLET_API_TOKEN", "droplet_dev_admin"))
     parser.add_argument("--timeout", type=float, default=600.0)
     subparsers = parser.add_subparsers(dest="command", required=True)
 

@@ -11,6 +11,8 @@ from typing import Any
 import httpx
 import pytest
 
+from tests.helpers import auth_headers
+
 if os.getenv("DROPLET_RUN_DOCKER_E2E") != "1":
     pytest.skip(
         "set DROPLET_RUN_DOCKER_E2E=1 to run the real Docker/API challenge smoke test",
@@ -18,7 +20,7 @@ if os.getenv("DROPLET_RUN_DOCKER_E2E") != "1":
     )
 
 
-AUTH_HEADERS = {"Authorization": "Bearer droplet_dev_admin"}
+AUTH_HEADERS = auth_headers(os.getenv("DROPLET_API_TOKEN", "droplet_dev_admin"))
 DATASET_ROOT = Path(os.getenv("DROPLET_E2E_DATASET_ROOT", "datasets/demo-xbow"))
 DEFAULT_TASK_ID = "xben-001-24"
 SERVER_READY_TIMEOUT_SECONDS = int(os.getenv("DROPLET_E2E_SERVER_TIMEOUT", "30"))

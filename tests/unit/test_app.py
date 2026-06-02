@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
+
+from tests.helpers import auth_headers
 
 
 @pytest.fixture
 def client(tmp_path, isolated_database, monkeypatch):
     """Create a FastAPI test client with isolated database."""
-    monkeypatch.setenv("DROPLET_DATASET_ROOT", str(tmp_path / "datasets"))
+    dataset_root = tmp_path / "datasets"
+    dataset_root.mkdir()
+    monkeypatch.setenv("DROPLET_DATASET_ROOT", str(dataset_root))
     monkeypatch.setenv("DROPLET_WORK_ROOT", str(tmp_path / "work"))
     monkeypatch.setenv("DROPLET_PRESTART_CHALLENGES", "0")
     monkeypatch.setenv("DROPLET_PREFETCH_IMAGES", "0")
@@ -19,12 +24,11 @@ def client(tmp_path, isolated_database, monkeypatch):
 
     importlib.reload(app_module)
 
-    from fastapi.testclient import TestClient
+    with TestClient(app_module.app) as test_client:
+        yield test_client
 
-    return TestClient(app_module.app)
 
-
-AUTH_HEADER = {"Authorization": "Bearer droplet_dev_admin"}
+AUTH_HEADER = auth_headers()
 
 
 def test_health_no_auth_required(client):
@@ -56,6 +60,28 @@ def test_droplet_prefix_token_rejected(client):
     """Arbitrary droplet_ prefix tokens should not be accepted."""
     resp = client.get("/api/challenges", headers={"Authorization": "Bearer droplet_mytoken"})
     assert resp.status_code == 401
+
+
+def test_configured_api_token_replaces_default(tmp_path, isolated_database, monkeypatch):
+    dataset_root = tmp_path / "datasets"
+    dataset_root.mkdir()
+    monkeypatch.setenv("DROPLET_DATASET_ROOT", str(dataset_root))
+    monkeypatch.setenv("DROPLET_WORK_ROOT", str(tmp_path / "work"))
+    monkeypatch.setenv("DROPLET_PRESTART_CHALLENGES", "0")
+    monkeypatch.setenv("DROPLET_PREFETCH_IMAGES", "0")
+    monkeypatch.setenv("DROPLET_API_TOKEN", "configured-secret")
+
+    import importlib
+    import droplet.app as app_module
+
+    importlib.reload(app_module)
+
+    with TestClient(app_module.app) as client:
+        assert (
+            client.get("/api/challenges", headers=auth_headers("configured-secret")).status_code
+            == 200
+        )
+        assert client.get("/api/challenges", headers=AUTH_HEADER).status_code == 401
 
 
 def test_missing_bearer_prefix(client):

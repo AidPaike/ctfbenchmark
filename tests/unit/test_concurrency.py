@@ -1,41 +1,16 @@
 from __future__ import annotations
-from pathlib import Path
-
 import pytest
 
-from droplet.models import Challenge, ChallengeStatus
+from droplet.models import ChallengeStatus
 from droplet.manager import DropletManager
-
-
-def _make_challenge(template: Path, challenge_id: str = "demo") -> Challenge:
-    template.mkdir(parents=True, exist_ok=True)
-    (template / "docker-compose.yml").write_text(
-        """services:
-  web:
-    image: nginx:alpine
-    ports:
-      - "8080:80"
-""",
-        encoding="utf-8",
-    )
-    return Challenge(
-        id=challenge_id,
-        title=challenge_id.title(),
-        description="Demo challenge",
-        category="web",
-        task_type="web_ctf_online",
-        difficulty="easy",
-        root=str(template),
-        compose_path=str(template / "docker-compose.yml"),
-        expose=[{"name": "web", "protocol": "http", "service": "web", "container_port": 80}],
-    )
+from tests.helpers import make_challenge
 
 
 def test_start_challenge_sets_starting_state_and_spawns_background_thread(
     tmp_path, monkeypatch
 ) -> None:
     template = tmp_path / "template"
-    challenge = _make_challenge(template)
+    challenge = make_challenge(template)
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
     manager.challenges = {challenge.id: challenge}
@@ -55,7 +30,7 @@ def test_start_challenge_sets_starting_state_and_spawns_background_thread(
 
 def test_start_challenge_returns_existing_when_already_starting(tmp_path, monkeypatch) -> None:
     template = tmp_path / "template"
-    challenge = _make_challenge(template)
+    challenge = make_challenge(template)
     challenge.status = ChallengeStatus.starting
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
@@ -72,7 +47,7 @@ def test_start_challenge_returns_existing_when_already_starting(tmp_path, monkey
 
 def test_start_challenge_returns_existing_when_already_running(tmp_path, monkeypatch) -> None:
     template = tmp_path / "template"
-    challenge = _make_challenge(template)
+    challenge = make_challenge(template)
     challenge.status = ChallengeStatus.running
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
@@ -93,7 +68,7 @@ def test_start_challenge_enforces_max_concurrent_limit(tmp_path, monkeypatch) ->
 
     # Create 3 challenges
     for i in range(3):
-        c = _make_challenge(tmp_path / f"template_{i}", f"demo_{i}")
+        c = make_challenge(tmp_path / f"template_{i}", challenge_id=f"demo_{i}")
         manager.challenges[c.id] = c
 
     # Mark first two as running
@@ -114,7 +89,7 @@ def test_start_challenge_counts_starting_towards_limit(tmp_path, monkeypatch) ->
     manager.max_concurrent = 2
 
     for i in range(3):
-        c = _make_challenge(tmp_path / f"template_{i}", f"demo_{i}")
+        c = make_challenge(tmp_path / f"template_{i}", challenge_id=f"demo_{i}")
         manager.challenges[c.id] = c
 
     # One running, one starting
@@ -134,7 +109,7 @@ def test_stop_challenge_sets_stopping_state_and_spawns_background_thread(
     tmp_path, monkeypatch
 ) -> None:
     template = tmp_path / "template"
-    challenge = _make_challenge(template)
+    challenge = make_challenge(template)
     challenge.status = ChallengeStatus.running
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
@@ -155,7 +130,7 @@ def test_stop_challenge_sets_stopping_state_and_spawns_background_thread(
 
 def test_stop_challenge_returns_existing_when_already_stopping(tmp_path, monkeypatch) -> None:
     template = tmp_path / "template"
-    challenge = _make_challenge(template)
+    challenge = make_challenge(template)
     challenge.status = ChallengeStatus.stopping
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
@@ -172,7 +147,7 @@ def test_stop_challenge_returns_existing_when_already_stopping(tmp_path, monkeyp
 
 def test_stop_challenge_is_noop_for_not_started(tmp_path, monkeypatch) -> None:
     template = tmp_path / "template"
-    challenge = _make_challenge(template)
+    challenge = make_challenge(template)
     challenge.status = ChallengeStatus.not_started
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
@@ -189,7 +164,7 @@ def test_stop_challenge_is_noop_for_not_started(tmp_path, monkeypatch) -> None:
 
 def test_stop_challenge_clears_starting_state(tmp_path, monkeypatch) -> None:
     template = tmp_path / "template"
-    challenge = _make_challenge(template)
+    challenge = make_challenge(template)
     challenge.status = ChallengeStatus.starting
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
@@ -210,7 +185,7 @@ def test_stop_challenge_clears_starting_state(tmp_path, monkeypatch) -> None:
 
 def test_start_challenge_returns_existing_when_stopping(tmp_path, monkeypatch) -> None:
     template = tmp_path / "template"
-    challenge = _make_challenge(template)
+    challenge = make_challenge(template)
     challenge.status = ChallengeStatus.stopping
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
@@ -230,7 +205,7 @@ def test_stop_challenge_counts_towards_active_limit(tmp_path, monkeypatch) -> No
     manager.max_concurrent = 2
 
     for i in range(3):
-        c = _make_challenge(tmp_path / f"template_{i}", f"demo_{i}")
+        c = make_challenge(tmp_path / f"template_{i}", challenge_id=f"demo_{i}")
         manager.challenges[c.id] = c
 
     manager.challenges["demo_0"].status = ChallengeStatus.running
@@ -249,7 +224,7 @@ def test_stats_includes_starting_count(tmp_path) -> None:
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
 
     for i in range(3):
-        c = _make_challenge(tmp_path / f"template_{i}", f"demo_{i}")
+        c = make_challenge(tmp_path / f"template_{i}", challenge_id=f"demo_{i}")
         manager.challenges[c.id] = c
 
     manager.challenges["demo_0"].status = ChallengeStatus.running
@@ -268,7 +243,7 @@ def test_start_all_collects_skipped_limit(tmp_path, monkeypatch) -> None:
     manager.max_concurrent = 1
 
     for i in range(3):
-        c = _make_challenge(tmp_path / f"template_{i}", f"demo_{i}")
+        c = make_challenge(tmp_path / f"template_{i}", challenge_id=f"demo_{i}")
         manager.challenges[c.id] = c
 
     monkeypatch.setattr(manager, "_do_start_challenge", lambda cid: None)
@@ -287,7 +262,7 @@ def test_reset_challenge_respects_max_concurrent_limit_for_inactive_target(
     manager.max_concurrent = 2
 
     for i in range(3):
-        c = _make_challenge(tmp_path / f"template_{i}", f"demo_{i}")
+        c = make_challenge(tmp_path / f"template_{i}", challenge_id=f"demo_{i}")
         manager.challenges[c.id] = c
 
     manager.challenges["demo_0"].status = ChallengeStatus.running

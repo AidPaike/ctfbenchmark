@@ -7,24 +7,15 @@ from droplet.database import (
     get_engine,
 )
 from droplet.manager import DropletManager
-from droplet.models import Challenge, ChallengeStatus
+from droplet.models import ChallengeStatus
 from sqlmodel import Session, select
+from tests.helpers import make_challenge
 
 
 def _make_manager(tmp_path):
     """Create a manager with a dummy challenge for persistence tests."""
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
-    challenge = Challenge(
-        id="demo",
-        title="Demo",
-        description="Demo",
-        category="web",
-        task_type="web_ctf_online",
-        difficulty="easy",
-        root=str(tmp_path),
-        compose_path=str(tmp_path / "docker-compose.yml"),
-        expose=[{"name": "web", "protocol": "http", "service": "web", "container_port": 80}],
-    )
+    challenge = make_challenge(tmp_path, challenge_id="demo")
     manager.challenges = {"demo": challenge}
     return manager, challenge
 
