@@ -19,7 +19,7 @@ def test_demo_xbow_challenges_are_discovered() -> None:
         assert challenge.task_type == "web_ctf_online"
         assert challenge.root.endswith(challenge.id.upper())
         assert challenge.expose
-        assert challenge.judge_mode == "record_only"
+        assert challenge.judge_mode in ("record_only", "exact_match")
 
 
 @pytest.mark.skipif(not _DATASETS_EXIST, reason="Dataset files not present (gitignored in CI)")

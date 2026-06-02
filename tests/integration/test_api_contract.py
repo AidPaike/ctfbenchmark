@@ -42,6 +42,7 @@ def _challenge(template: Path, challenge_id: str = "contract-001") -> Challenge:
 @pytest.fixture()
 def api_contract(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("DROPLET_PRESTART_CHALLENGES", "0")
+    monkeypatch.setenv("DROPLET_PREFETCH_IMAGES", "0")
     manager = app_module.manager
     old_events = manager.events
     manager.events = EventStore(tmp_path / "events.jsonl")
@@ -98,6 +99,18 @@ def _wait_for_status(client, expected: str = "running", timeout: float = 2.0) ->
             return challenge
         time.sleep(0.05)
     raise AssertionError(f"Challenge did not reach status {expected}")
+
+
+def _wait_for_prestart(client, timeout: float = 2.0) -> dict:
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        health = client.get("/api/health").json()
+        if health.get("prestart") is not None:
+            return health["prestart"]
+        time.sleep(0.05)
+    raise AssertionError("Prestart did not report status")
 
 
 def test_start_all_starts_actual_challenge_services(api_contract) -> None:
@@ -224,6 +237,7 @@ def test_tencent_compat_api_returns_running_ports_and_accepts_answers(api_contra
 
 def test_startup_can_prestart_selected_challenges(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("DROPLET_PRESTART_CHALLENGES", "1")
+    monkeypatch.setenv("DROPLET_PREFETCH_IMAGES", "0")
     monkeypatch.setenv("DROPLET_PRESTART_IDS", "contract-001")
     manager = app_module.manager
     old_events = manager.events
@@ -246,8 +260,8 @@ def test_startup_can_prestart_selected_challenges(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr(manager, "_stop_compose", lambda _challenge: None)
 
     with TestClient(app_module.app) as client:
-        health = client.get("/api/health").json()
-        assert health["prestart"]["started"] == ["contract-001"]
+        prestart = _wait_for_prestart(client)
+        assert prestart["started"] == ["contract-001"]
         # Prestart is asynchronous; wait briefly for the background thread to finish
         challenge = _wait_for_status(client, "running")
         assert challenge["status"] == "running"

@@ -5,7 +5,7 @@ Droplet 是一个用于评测自动化渗透测试 Agent 的黑盒 CTF Benchmark
 - 后端：FastAPI + SQLite，端口 `1349`
 - 前端：React + Vite，端口 `10349`
 - SDK：Python 客户端 + CLI + MCP Server
-- 默认 Token：`droplet_dev_admin`
+- 默认 Token：`droplet_dev_admin`（可用 `DROPLET_API_TOKEN` 覆盖）
 
 平台负责启动题目 Docker 环境、暴露端口、记录提交；Agent 只通过端口访问题目。
 
@@ -63,7 +63,7 @@ datasets:
 ./scripts/platform/start.sh
 ```
 
-自动完成：镜像预热 → 启动题目 → 启动后端 → 启动前端。终端顶部显示预热进度。
+自动启动后端和前端；后端加载题目后在后台执行镜像预热与题目预启动。终端顶部显示预热进度。
 
 ### 开发模式
 
@@ -108,7 +108,7 @@ curl --noproxy 127.0.0.1 -s \
   http://127.0.0.1:1349/api/v1/answer
 ```
 
-当前 XBOW demo 返回 `judged: false`，平台只记录提交，不判题。
+包含 `.env` 中 `FLAG` 且 `win_condition: flag` 的题目会进行精确匹配判题；未配置 Flag 的题目返回 `judged: false`，平台只记录提交。
 
 ## MCP 接入
 
@@ -176,6 +176,9 @@ python -m datasets.preprocessor \
 ```bash
 # 单元测试
 PYTHONPATH=backend:sdk python -m pytest tests/unit/ -v
+
+# 轻量 API 契约测试（不需要 Docker）
+PYTHONPATH=backend:sdk python -m pytest tests/integration/test_api_contract.py -v
 
 # Docker 集成测试（需要 Docker）
 DROPLET_RUN_DOCKER_E2E=1 PYTHONPATH=backend:sdk python -m pytest tests/integration/test_api_docker_e2e.py -v -s

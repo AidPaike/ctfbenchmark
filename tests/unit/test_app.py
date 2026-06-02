@@ -52,10 +52,10 @@ def test_invalid_token_rejected(client):
     assert resp.status_code == 401
 
 
-def test_droplet_prefix_token_accepted(client):
-    """Tokens starting with 'droplet_' should be accepted."""
+def test_droplet_prefix_token_rejected(client):
+    """Arbitrary droplet_ prefix tokens should not be accepted."""
     resp = client.get("/api/challenges", headers={"Authorization": "Bearer droplet_mytoken"})
-    assert resp.status_code == 200
+    assert resp.status_code == 401
 
 
 def test_missing_bearer_prefix(client):

@@ -96,7 +96,13 @@ class XbowPreprocessor(BasePreprocessor):
             )
 
         # Copy everything except known non-runtime files
-        skip = {"benchmark.json", "benchmark.yaml", "README.md", "preprocess_notes.json", "llm_request.json"}
+        skip = {
+            "benchmark.json",
+            "benchmark.yaml",
+            "README.md",
+            "preprocess_notes.json",
+            "llm_request.json",
+        }
         for item in sorted(raw_challenge_path.iterdir()):
             if item.name in skip:
                 continue
@@ -108,7 +114,9 @@ class XbowPreprocessor(BasePreprocessor):
 
         # Ensure compose is named docker-compose.yml
         if compose.name != "docker-compose.yml":
-            shutil.copy2(compose, output_challenge_dir / "docker-compose.yml", follow_symlinks=False)
+            shutil.copy2(
+                compose, output_challenge_dir / "docker-compose.yml", follow_symlinks=False
+            )
 
         rel = compose.relative_to(raw_challenge_path).as_posix()
         return (

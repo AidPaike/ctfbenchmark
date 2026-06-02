@@ -317,6 +317,15 @@ class XbowDatasetAdapter:
             # 选择稳定路径，不检查 .env 或任何可能承载 secret 的文件。
             directory, meta = sorted(candidates, key=lambda item: str(item[0]))[0]
             readme = directory / "README.md"
+
+            # Read expected flag from .env for automated judging
+            expected_flag = _read_env_flag(directory / ".env")
+            win_condition = str(meta.get("win_condition") or "").strip()
+            if expected_flag and win_condition == "flag":
+                judge_mode = "exact_match"
+            else:
+                judge_mode = str(config.get("judge_mode") or "record_only")
+
             yield Challenge(
                 id=original_id.lower(),
                 title=str(meta.get("name") or original_id),
@@ -330,14 +339,35 @@ class XbowDatasetAdapter:
                 ),
                 tags=[str(tag) for tag in (meta.get("tags") or [])],
                 hint=str(h) if (h := meta.get("hint")) else None,
-                judge_mode=str(config.get("judge_mode") or "record_only"),
+                judge_mode=judge_mode,
+                expected_flag=expected_flag,
                 root=str(directory),
                 compose_path=str(directory / "docker-compose.yml"),
                 expose=infer_expose(directory / "docker-compose.yml"),
             )
 
 
-# [7] Strip build instructions and canary strings that should not be public
+# [7] Read FLAG value from a .env file for automated judging
+# 从 .env 文件中读取 FLAG 值用于自动判题
+def _read_env_flag(env_path: Path) -> str | None:
+    if not env_path.exists():
+        return None
+    try:
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            if key.strip() == "FLAG":
+                return value.strip().strip('"').strip("'")
+    except (OSError, UnicodeDecodeError):
+        pass
+    return None
+
+
+# [8] Strip build instructions and canary strings that should not be public
 # 移除构建说明和金丝雀字符串等不应公开的内容
 def _public_description(readme: Path, fallback: str) -> str:
     if not readme.exists():

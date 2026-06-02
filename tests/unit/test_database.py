@@ -158,3 +158,80 @@ def test_migrate_jsonl_skips_if_events_exist(isolated_database):
 def test_migrate_jsonl_missing_file(isolated_database):
     count = migrate_jsonl_to_sqlite(Path("/nonexistent/file.jsonl"))
     assert count == 0
+
+
+# ── Auto-migration tests ─────────────────────────────────────────────
+
+
+def test_auto_migrate_adds_missing_column(isolated_database):
+    """When a new column is added to the ORM, auto-migrate should add it to existing tables."""
+    init_db()
+    engine = get_engine()
+
+    # Drop a column by recreating the events table without 'archived'
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE events_test AS SELECT id, timestamp, level, event_type, "
+            "message, challenge_id, data, session_id FROM events"
+        )
+        conn.exec_driver_sql("DROP TABLE events")
+        conn.exec_driver_sql("ALTER TABLE events_test RENAME TO events")
+
+    # Verify 'archived' is gone
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(events)")}
+        assert "archived" not in cols
+
+    # Re-run init_db — should add the missing column
+    init_db()
+
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(events)")}
+        assert "archived" in cols
+
+
+def test_auto_migrate_no_op_when_schema_current(isolated_database):
+    """When schema is already up-to-date, auto-migrate should not modify anything."""
+    init_db()
+    engine = get_engine()
+
+    # Insert a row
+    with Session(engine) as session:
+        session.add(Event(id="e1", timestamp="t", event_type="x", message="m"))
+        session.commit()
+
+    # Re-run init_db
+    init_db()
+
+    # Row should still exist
+    with Session(engine) as session:
+        row = session.get(Event, "e1")
+        assert row is not None
+        assert row.message == "m"
+
+
+def test_auto_migrate_handles_all_tables(isolated_database):
+    """Auto-migrate should handle all registered tables without error."""
+    init_db()
+    engine = get_engine()
+
+    # Manually drop a column from system_logs to test
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE system_logs_test AS SELECT id, created_at, level, logger, "
+            "message, source_file, source_line, exception FROM system_logs"
+        )
+        conn.exec_driver_sql("DROP TABLE system_logs")
+        conn.exec_driver_sql("ALTER TABLE system_logs_test RENAME TO system_logs")
+
+    # Verify 'data' is gone
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(system_logs)")}
+        assert "data" not in cols
+
+    # Re-run init_db — should add the missing column
+    init_db()
+
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(system_logs)")}
+        assert "data" in cols

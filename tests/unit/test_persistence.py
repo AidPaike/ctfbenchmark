@@ -136,6 +136,17 @@ def test_get_submissions_returns_current_reset_epoch_only(tmp_path) -> None:
 
     results = manager.get_submissions("demo", limit=10)
     assert len(results) == 1
+    assert results[0]["answer"] == "<redacted>"
+
+
+def test_get_submissions_can_show_answers_when_enabled(tmp_path, monkeypatch) -> None:
+    """Local debug mode can opt into full answer visibility."""
+    monkeypatch.setenv("DROPLET_SHOW_SUBMISSION_ANSWERS", "1")
+    manager, challenge = _make_manager(tmp_path)
+    manager._record_submission(challenge, "FLAG{a}", True, 1.0, 1.0)
+
+    results = manager.get_submissions("demo", limit=10)
+
     assert results[0]["answer"] == "FLAG{a}"
 
 

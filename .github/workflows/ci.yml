@@ -16,8 +16,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install ruff
-      - run: ruff check backend/ sdk/ tests/
-      - run: ruff format --check backend/ sdk/ tests/
+      - run: ruff check backend/ sdk/ datasets/preprocessor/ tests/
+      - run: ruff format --check backend/ sdk/ datasets/preprocessor/ tests/
 
   test:
     name: Unit Tests

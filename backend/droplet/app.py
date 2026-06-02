@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -24,7 +25,7 @@ logger = logging.getLogger("droplet.app")
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-ADMIN_TOKEN = "droplet_dev_admin"
+ADMIN_TOKEN = os.getenv("DROPLET_API_TOKEN", "droplet_dev_admin")
 manager = DropletManager(
     dataset_root=Path(os.getenv("DROPLET_DATASET_ROOT", _PROJECT_ROOT / "datasets")),
     work_root=Path(os.getenv("DROPLET_WORK_ROOT", _PROJECT_ROOT / "data" / "work")),
@@ -32,13 +33,13 @@ manager = DropletManager(
 )
 
 
-# [2] Simple bearer token check; accepts the hardcoded admin token OR any token starting with "droplet_"
-# 简单的 bearer token 检查；接受硬编码的管理员 token 或任何以 "droplet_" 开头的 token
+# [2] Simple bearer token check; accepts only the configured admin token.
+# 简单的 bearer token 检查；仅接受配置的管理员 token。
 def require_auth(authorization: Annotated[str | None, Header()] = None) -> None:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
-    if token != ADMIN_TOKEN and not token.startswith("droplet_"):
+    if not secrets.compare_digest(token, ADMIN_TOKEN):
         raise HTTPException(status_code=401, detail="Invalid bearer token")
 
 
@@ -74,11 +75,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         import time as _time
 
         if _env_enabled("DROPLET_PREFETCH_IMAGES", default=True):
-            logger.info("Pre-pulling Docker images...")
+            logger.info("Pre-building Docker images...")
             manager.prefetch_images()
             while manager.prefetch_progress().get("running"):
                 _time.sleep(1)
-            logger.info("Image prefetch complete.")
+            logger.info("Image pre-build complete.")
 
         if _env_enabled("DROPLET_PRESTART_CHALLENGES", default=True):
             prestart_ids = _prestart_ids()
@@ -369,10 +370,12 @@ def compat_answer(payload: dict, _: None = Depends(require_auth)) -> dict:
         challenge = manager.get_challenge(payload["challenge_code"].lower())
         result = manager.submit(challenge.id, payload["answer"])
         return {
-            "correct": False,
-            "judged": False,
+            "correct": bool(result.get("correct")),
+            "judged": bool(result.get("judged")),
             "accepted": bool(result["accepted"]),
-            "earned_points": 0,
+            "earned_points": int(result.get("score_after_hint_penalty", 0) * 1000)
+            if result.get("correct")
+            else 0,
             "is_solved": challenge.solved,
             "message": result["message"],
         }

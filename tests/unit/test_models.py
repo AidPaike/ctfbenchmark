@@ -80,6 +80,19 @@ def test_challenge_public_fields():
     assert public["finished_at"] is None
 
 
+def test_challenge_public_excludes_expected_flag():
+    c = _make_challenge(expected_flag="flag{secret}")
+    public = c.public()
+    assert "expected_flag" not in public
+    assert public["has_expected_flag"] is True
+
+
+def test_challenge_public_no_expected_flag():
+    c = _make_challenge(expected_flag=None)
+    public = c.public()
+    assert public["has_expected_flag"] is False
+
+
 def test_challenge_public_with_timestamps():
     c = _make_challenge()
     c.started_at = datetime(2026, 1, 1, tzinfo=UTC)

@@ -174,3 +174,113 @@ def test_reset_all_challenges(manager):
     result = manager.reset_all_challenges()
     assert "new_session_id" in result
     assert result["reset"] is True
+
+
+def test_stop_challenge_allows_solved_with_runtime(manager, monkeypatch):
+    c = _make_challenge()
+    c.status = ChallengeStatus.solved
+    c.solved = True
+    c.compose_project = "droplet_TEST-001"
+    c.work_dir = "/tmp/droplet_TEST-001"
+    manager.challenges = {"TEST-001": c}
+    calls = []
+    monkeypatch.setattr(manager, "_do_stop_challenge", lambda cid: calls.append(cid))
+
+    result = manager.stop_challenge("TEST-001")
+
+    assert result.status == ChallengeStatus.stopping
+    assert calls == ["TEST-001"]
+
+
+# ── Flag judging tests ────────────────────────────────────────────────
+
+
+def test_submit_correct_flag(manager):
+    c = _make_challenge(expected_flag="flag{secret}")
+    c.status = ChallengeStatus.running
+    manager.challenges = {"TEST-001": c}
+
+    result = manager.submit("TEST-001", "flag{secret}")
+
+    assert result["accepted"] is True
+    assert result["judged"] is True
+    assert result["correct"] is True
+    assert result["is_solved"] is True
+    assert result["message"] == "correct flag"
+    assert c.solved is True
+    assert c.status == ChallengeStatus.running
+    assert c.score == 1.0
+    assert c.submission_count == 1
+
+
+def test_submit_wrong_flag(manager):
+    c = _make_challenge(expected_flag="flag{secret}")
+    c.status = ChallengeStatus.running
+    manager.challenges = {"TEST-001": c}
+
+    result = manager.submit("TEST-001", "flag{wrong}")
+
+    assert result["accepted"] is True
+    assert result["judged"] is True
+    assert result["correct"] is False
+    assert result["is_solved"] is False
+    assert result["message"] == "incorrect flag"
+    assert c.solved is False
+    assert c.status == ChallengeStatus.running
+    assert c.submission_count == 1
+
+
+def test_submit_no_flag_record_only(manager):
+    c = _make_challenge(expected_flag=None)
+    c.status = ChallengeStatus.running
+    manager.challenges = {"TEST-001": c}
+
+    result = manager.submit("TEST-001", "anything")
+
+    assert result["accepted"] is True
+    assert result["judged"] is False
+    assert result["correct"] is None
+    assert result["message"] == "submission recorded; no flag judge is configured"
+    assert c.solved is False
+    assert c.submission_count == 1
+
+
+def test_submit_already_solved(manager):
+    c = _make_challenge(expected_flag="flag{secret}")
+    c.status = ChallengeStatus.running
+    c.solved = True
+    c.score = 1.0
+    manager.challenges = {"TEST-001": c}
+
+    result = manager.submit("TEST-001", "flag{secret}")
+
+    assert result["judged"] is True
+    assert result["correct"] is True
+    assert result["is_solved"] is True
+    assert c.submission_count == 1
+
+
+def test_submit_correct_flag_with_hint_penalty(manager):
+    c = _make_challenge(expected_flag="flag{secret}", hint="Some hint")
+    c.status = ChallengeStatus.running
+    c.hint_viewed = True
+    c.hint_penalty = -0.2
+    manager.challenges = {"TEST-001": c}
+
+    result = manager.submit("TEST-001", "flag{secret}")
+
+    assert result["correct"] is True
+    assert result["score_after_hint_penalty"] == 0.8
+    assert c.score == 0.8
+
+
+def test_submit_flag_case_sensitive(manager):
+    c = _make_challenge(expected_flag="flag{Secret}")
+    c.status = ChallengeStatus.running
+    manager.challenges = {"TEST-001": c}
+
+    result = manager.submit("TEST-001", "flag{secret}")
+    assert result["correct"] is False
+
+    result2 = manager.submit("TEST-001", "flag{Secret}")
+    assert result2["correct"] is True

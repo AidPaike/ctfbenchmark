@@ -65,7 +65,7 @@ def test_start_compose_uses_absolute_compose_file_with_challenge_cwd(tmp_path, m
     assert compose_path.is_absolute()
     assert compose_path == tmp_path / "work" / "challenges" / "demo" / "docker-compose.yml"
     assert "--wait" not in command
-    assert "--build" not in command
+    assert "--build" in command
     assert Path(kwargs["cwd"]) == tmp_path / "work" / "challenges" / "demo"
     assert result["target_url"] == "http://127.0.0.1:34567"
     assert ready_checks == [
@@ -150,7 +150,7 @@ def test_start_compose_injects_docker_proxy_into_runtime_copy_only(tmp_path, mon
     assert calls[0][1]["env"]["HTTP_PROXY"] == "http://192.168.3.67:7890"
 
 
-def test_start_compose_can_force_rebuild_with_env_var(tmp_path, monkeypatch) -> None:
+def test_start_compose_always_rebuilds_runtime_images(tmp_path, monkeypatch) -> None:
     template = tmp_path / "template"
 
     calls = []
@@ -159,7 +159,6 @@ def test_start_compose_can_force_rebuild_with_env_var(tmp_path, monkeypatch) -> 
         calls.append((command, kwargs))
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
-    monkeypatch.setenv("DROPLET_FORCE_REBUILD", "1")
     monkeypatch.setattr(
         DropletManager,
         "_resolve_ports",
@@ -174,7 +173,7 @@ def test_start_compose_can_force_rebuild_with_env_var(tmp_path, monkeypatch) -> 
     manager._start_compose(challenge, tmp_path / "work" / "challenges" / "demo")
 
     command = calls[0][0]
-    assert command[-3:] == ["up", "--build", "-d"]
+    assert command[-3:] == ["up", "-d", "--build"]
 
 
 def test_start_compose_strips_stale_proxy_when_proxy_is_disabled(tmp_path, monkeypatch) -> None:
@@ -401,6 +400,42 @@ def test_watchdog_sets_error_when_endpoint_unreachable(monkeypatch) -> None:
 
     assert challenge.status.value == "error"
     assert "connection refused" in challenge.error_message
+
+
+def test_watchdog_uses_resolved_ports_when_expose_has_no_host_port(monkeypatch) -> None:
+    """Runtime ports should be enough for watchdog checks after Docker resolves host ports."""
+    manager = DropletManager(dataset_root=Path("."), work_root=Path("."))
+    challenge = Challenge(
+        id="demo",
+        title="Demo",
+        description="Demo",
+        category="web",
+        task_type="web_ctf_online",
+        difficulty="easy",
+        root=str(Path(".")),
+        compose_path=str(Path(".")),
+        expose=[{"name": "web", "protocol": "http", "service": "web", "container_port": 80}],
+        status="running",
+        target_url="http://127.0.0.1:12345",
+        ports=[12345],
+        compose_project="proj_demo",
+    )
+    manager.challenges = {"demo": challenge}
+    checked = []
+
+    monkeypatch.setattr(manager, "_is_compose_running", lambda c: True)
+
+    def fake_ready(endpoint):
+        checked.append(endpoint)
+        return True, ""
+
+    monkeypatch.setattr(manager_module, "_endpoint_ready", fake_ready)
+
+    manager._check_container_health()
+
+    assert checked == [
+        {"type": "http", "host": "127.0.0.1", "port": 12345, "url": "http://127.0.0.1:12345"}
+    ]
 
 
 def test_compose_ps_json_parser_accepts_multi_container_json_lines() -> None:

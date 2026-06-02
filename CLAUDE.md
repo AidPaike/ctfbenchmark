@@ -16,8 +16,8 @@ PYTHONPATH=backend:sdk python -m pytest tests/unit/ -v
 PYTHONPATH=backend:sdk python -m pytest tests/unit/test_persistence.py::test_fn -v
 
 # Lint / Format
-ruff check backend/ sdk/ tests/
-ruff format backend/ sdk/ tests/
+ruff check backend/ sdk/ datasets/preprocessor/ tests/
+ruff format backend/ sdk/ datasets/preprocessor/ tests/
 
 # 一键启动（含镜像预热）
 ./scripts/platform/start.sh
@@ -88,15 +88,15 @@ SQLite 文件：`data/droplet.db`
 - **题目隔离**：`datasets/` 模板不被修改。每题复制到 `data/work/` 再运行。代理注入和端口改写只动副本。
 - **并发限制**：`DEFAULT_MAX_CONCURRENT_ENVIRONMENTS = 2`。
 - **看门狗**：后台线程 10s 轮询，检测容器外部杀死或服务不可达。
-- **镜像预热**：`prefetch_images()` 后台线程执行 `docker compose pull`，只拉镜像不启动容器。
-- **认证**：`require_auth()` 接受 `droplet_dev_admin` 或 `droplet_` 前缀 token。
+- **镜像预热**：`prefetch_images()` 后台线程执行 `docker compose build`，构建镜像但不启动容器。
+- **认证**：`require_auth()` 只接受 `DROPLET_API_TOKEN` 配置的精确 Bearer token，默认 `droplet_dev_admin`。
 - **生命周期**：使用 FastAPI `lifespan` 上下文管理器（非废弃的 `@app.on_event`）。
 
 ## CI/CD
 
 `.github/workflows/ci.yml` 在 push/PR 到 `develop`/`master` 时自动运行：
 - **Lint**：`ruff check` + `ruff format --check`
-- **Test**：`pytest tests/unit/`（114 个测试）
+- **Test**：`pytest tests/unit/`；轻量 API 契约测试为 `tests/integration/test_api_contract.py`
 - **Frontend**：`tsc --noEmit` + `npm run build`
 
 ## 环境变量
@@ -106,6 +106,7 @@ SQLite 文件：`data/droplet.db`
 | `DROPLET_DATASET_ROOT` | `datasets` | 数据集根目录 |
 | `DROPLET_WORK_ROOT` | `data/work` | 运行态目录 |
 | `DROPLET_PUBLIC_HOST` | `127.0.0.1` | 暴露给 Agent 的主机 |
+| `DROPLET_API_TOKEN` | `droplet_dev_admin` | API Bearer token |
 | `DROPLET_DATABASE_PATH` | `data/droplet.db` | SQLite 路径 |
 | `DROPLET_PRESTART_CHALLENGES` | `1` | 启动时自动开始所有题目 |
 | `DROPLET_PREFETCH_IMAGES` | `1` | 启动时预热 Docker 镜像 |
@@ -114,7 +115,7 @@ SQLite 文件：`data/droplet.db`
 | `DROPLET_TARGET_READY_TIMEOUT` | `90` | 端口健康检查超时（秒）|
 | `DROPLET_COMPOSE_TIMEOUT_SECONDS` | `300` | `docker compose up` 超时 |
 | `DROPLET_MAX_CONCURRENT_ENVIRONMENTS` | `2` | 最大并发运行题目数 |
-| `DROPLET_FORCE_REBUILD` | `0` | 强制 `--build` |
+| `DROPLET_SHOW_SUBMISSION_ANSWERS` | `0` | 调试时显示提交历史原文 |
 
 ## 分支模型
 
