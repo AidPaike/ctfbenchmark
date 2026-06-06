@@ -67,20 +67,22 @@ rm -f "$BACKEND_LOG"
 FRONTEND_PID=""
 if [[ "${START_FRONTEND:-1}" == "1" ]]; then
   cd "${PROJECT_ROOT}/frontend"
-  npm run dev >"${LOG_DIR}/frontend.log" 2>&1 &
+  # Start in a new process group so we can kill the whole tree
+  setsid npm run dev >"${LOG_DIR}/frontend.log" 2>&1 &
   FRONTEND_PID=$!
   echo "$FRONTEND_PID" > "$_pidfile_frontend"
 fi
 
 # ── Start backend in background ────────────────────────────────────
 cd "$PROJECT_ROOT"
-echo $$ > "$_pidfile_backend"
 
-python -m uvicorn droplet.app:app \
+# Start in a new process group so we can kill the whole tree
+setsid python -m uvicorn droplet.app:app \
   --host "$BACKEND_HOST" \
   --port "$BACKEND_PORT" \
   > "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
+echo "$BACKEND_PID" > "$_pidfile_backend"
 
 # Wait briefly and check if backend started successfully
 sleep 2
@@ -229,12 +231,13 @@ cleanup() {
   echo ""
   printf '\e[36m[INFO]\e[0m Shutting down ...\n'
 
+  # Kill entire process groups (setsid) to clean up child processes
   if kill -0 "$BACKEND_PID" 2>/dev/null; then
-    kill "$BACKEND_PID" 2>/dev/null || true
+    kill -- -"$BACKEND_PID" 2>/dev/null || kill "$BACKEND_PID" 2>/dev/null || true
     wait "$BACKEND_PID" 2>/dev/null || true
   fi
   if [[ -n "$FRONTEND_PID" ]] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
-    kill "$FRONTEND_PID" 2>/dev/null || true
+    kill -- -"$FRONTEND_PID" 2>/dev/null || kill "$FRONTEND_PID" 2>/dev/null || true
     wait "$FRONTEND_PID" 2>/dev/null || true
   fi
 
