@@ -33,7 +33,7 @@ docker compose version
 如果 Docker build 需要代理：
 
 ```bash
-export DROPLET_DOCKER_PROXY=http://192.168.3.67:7890
+export DROPLET_DOCKER_PROXY=http://192.168.3.67:7893
 ```
 
 默认 `NO_PROXY` 已包含 `pypi.tuna.tsinghua.edu.cn`，避免 pip 走代理出错。如需关闭代理注入：
