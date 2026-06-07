@@ -1,6 +1,6 @@
 # Droplet Agent Guide
 
-本指南帮助自动化渗透测试 Agent 接入 Droplet 平台，完成 CTF 题目的评测。
+本指南帮助自动化渗透测试 Agent 通过 MCP 接入 Droplet 平台，完成 CTF 题目的评测。
 
 ## 快速开始
 
@@ -12,13 +12,7 @@
 ### 安装 SDK
 
 ```bash
-cd sdk && pip install -e .
-```
-
-或不安装，直接设置 PYTHONPATH：
-
-```bash
-export PYTHONPATH=/path/to/sdk
+pip install -e ".[mcp]"
 ```
 
 ### 连接信息
@@ -27,6 +21,25 @@ export PYTHONPATH=/path/to/sdk
 |---|---|---|
 | 后端地址 | `DROPLET_BASE_URL` | `http://127.0.0.1:1349` |
 | API Token | `DROPLET_API_TOKEN` | 由赛事方提供 |
+
+## MCP 配置
+
+在你的 Agent（Claude Code / Cursor / Cline 等）中添加 MCP Server 配置：
+
+```json
+{
+  "mcpServers": {
+    "droplet": {
+      "command": "python",
+      "args": ["-m", "droplet_sdk.mcp_server"],
+      "env": {
+        "DROPLET_BASE_URL": "http://127.0.0.1:1349",
+        "DROPLET_API_TOKEN": "your_token_here"
+      }
+    }
+  }
+}
+```
 
 ## 评测工作流
 
@@ -49,67 +62,28 @@ start_challenge(id)      # 2. 启动题目环境（如果 status ≠ running）
   submit_answer(id, flag) # 6. 提交 flag
 ```
 
-### 第一步：获取题目列表
+## MCP 工具列表
 
-```bash
-# CLI
-python -m droplet_sdk.cli challenges
-
-# Python
-from droplet_sdk import DropletClient
-with DropletClient() as client:
-    challenges = client.list_challenges()
-```
-
-### 第二步：启动题目
-
-题目需要先启动才能访问。启动是异步的，需要等待状态变为 `running`。
-
-```bash
-# CLI
-python -m droplet_sdk.cli start xben-001-24
-
-# Python
-client.start_challenge("xben-001-24")
-```
-
-### 第三步：等待就绪
-
-轮询 `list_challenges` 或 `get_challenge`，直到 `status == "running"` 且 `target_url` 有值。
-
-```python
-import time
-with DropletClient() as client:
-    while True:
-        challenge = client.get_challenge("xben-001-24")
-        if challenge["status"] == "running" and challenge.get("target_url"):
-            break
-        if challenge["status"] == "error":
-            raise RuntimeError(challenge.get("error_message"))
-        time.sleep(2)
-    print(f"题目就绪: {challenge['target_url']}")
-```
-
-### 第四步：渗透测试
-
-使用 `target_url` 访问题目环境，进行黑盒渗透测试。平台不干预渗透过程。
-
-### 第五步：提交 Flag
-
-```bash
-# CLI
-python -m droplet_sdk.cli submit xben-001-24 'FLAG{...}'
-
-# Python
-result = client.submit_answer("xben-001-24", "FLAG{...}")
-print(result["message"])  # "correct flag" 或 "incorrect flag"
-```
+| 工具 | 说明 |
+|---|---|
+| `list_challenges` | 列出所有题目及当前状态 |
+| `start_challenge` | 启动单个题目环境 |
+| `stop_challenge` | 停止单个题目环境 |
+| `reset_challenge` | 重置题目（停 + 重启） |
+| `start_all_challenges` | 批量启动题目 |
+| `stop_all_challenges` | 停止所有运行中的题目 |
+| `prefetch_images` | 预热 Docker 镜像 |
+| `submit_answer` | 提交 flag 或答案 |
+| `view_hint` | 查看提示（首次扣 10%） |
+| `get_stats` | 获取总体统计 |
+| `list_events` | 列出审计事件 |
+| `report_event` | 上报 Agent 事件（不影响评分） |
 
 ## API 响应字段说明
 
 ### 题目对象 (Challenge)
 
-`list_challenges()` 和 `get_challenge(id)` 返回的字段：
+`list_challenges` 返回的字段：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -154,7 +128,7 @@ solved: 提交正确 flag 后标记为 true，状态仍为 running（可继续�
 
 ### 提交响应
 
-`submit_answer()` 返回：
+`submit_answer` 返回：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -167,7 +141,7 @@ solved: 提交正确 flag 后标记为 true，状态仍为 running（可继续�
 
 ### 提示响应
 
-`view_hint()` 返回：
+`view_hint` 返回：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -183,119 +157,13 @@ solved: 提交正确 flag 后标记为 true，状态仍为 running（可继续�
 - `record_only` 模式：不自动判题，提交仅记录
 - 重复提交正确 flag 不重复计分
 
-## 使用方式
-
-### 方式一：Python SDK
-
-```python
-from droplet_sdk import DropletClient
-
-with DropletClient() as client:
-    # 列出题目
-    for c in client.list_challenges():
-        print(f"{c['id']}: {c['status']} {c.get('target_url', '')}")
-
-    # 启动单题
-    client.start_challenge("xben-001-24")
-
-    # 批量启动
-    client.start_all_challenges(["xben-001-24", "xben-002-24"])
-
-    # 提交 flag
-    result = client.submit_answer("xben-001-24", "FLAG{...}")
-
-    # 查看提示
-    hint = client.view_hint("xben-001-24")
-
-    # 重置题目（停+重启，清除运行时状态）
-    client.reset_challenge("xben-001-24")
-
-    # 查看统计
-    stats = client.stats()
-```
-
-### 方式二：命令行
-
-```bash
-# 列出所有题目
-python -m droplet_sdk.cli challenges
-
-# 启动/停止/重置
-python -m droplet_sdk.cli start xben-001-24
-python -m droplet_sdk.cli stop xben-001-24
-python -m droplet_sdk.cli reset xben-001-24
-
-# 批量启动
-python -m droplet_sdk.cli start-all --challenge-id xben-001-24 --challenge-id xben-002-24
-
-# 提交 flag
-python -m droplet_sdk.cli submit xben-001-24 'FLAG{...}'
-
-# 查看提示
-python -m droplet_sdk.cli hint xben-001-24
-
-# 预启动 + 健康检查（适合脚本初始化）
-python -m droplet_sdk.cli preflight --challenge-id xben-001-24
-
-# 统计
-python -m droplet_sdk.cli stats
-
-# 环境诊断
-python -m droplet_sdk.cli doctor
-```
-
-### 方式三：MCP（用于 Claude Code / Cursor / Cline 等支持 MCP 的 Agent）
-
-配置：
-
-```json
-{
-  "mcpServers": {
-    "droplet": {
-      "command": "python",
-      "args": ["-m", "droplet_sdk.mcp_server"],
-      "env": {
-        "DROPLET_BASE_URL": "http://127.0.0.1:1349",
-        "DROPLET_API_TOKEN": "your_token_here"
-      }
-    }
-  }
-}
-```
-
-可用工具：`list_challenges`、`start_challenge`、`stop_challenge`、`reset_challenge`、`submit_answer`、`view_hint`、`get_stats`、`list_events`、`report_event` 等。
-
-### 方式四：HTTP API
-
-```bash
-# 列出题目
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  http://127.0.0.1:1349/api/challenges
-
-# 提交 flag
-curl -X POST \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"answer":"FLAG{...}"}' \
-  http://127.0.0.1:1349/api/challenges/xben-001-24/submit
-```
-
 ## 事件上报（可选）
 
 Agent 可以通过 `report_event` 上报渗透过程中的关键事件，用于赛后分析。这不影响评分。
 
-```python
-client.report_event(
-    "xben-001-24",
-    "vulnerability_found",
-    "发现 IDOR 漏洞，可通过修改 user_id 参数访问其他用户数据",
-    level="info"
-)
-```
-
 ## 注意事项
 
-- 题目环境是临时的，`reset()` 会清除所有运行时状态
+- 题目环境是临时的，`reset_challenge` 会清除所有运行时状态
 - 并发启动题目数有上限（默认 2），超出会排队
 - 题目启动可能需要较长时间（首次构建 Docker 镜像）
 - 提交 flag 不限次数，但只有第一次正确提交计分

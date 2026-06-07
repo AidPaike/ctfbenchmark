@@ -4,7 +4,7 @@ Droplet 是一个用于评测自动化渗透测试 Agent 的黑盒 CTF Benchmark
 
 - 后端：FastAPI + SQLite，端口 `1349`
 - 前端：React + Vite，端口 `10349`
-- SDK：Python 客户端 + CLI + MCP Server
+- SDK：MCP Server
 - 默认 Token：`droplet_dev_admin`（可用 `DROPLET_API_TOKEN` 覆盖）
 
 平台负责启动题目 Docker 环境、暴露端口、记录提交；Agent 只通过端口访问题目。
@@ -145,29 +145,6 @@ Claude Code / Cursor / Cline 配置：
 
 可用工具：`list_challenges`、`start_all_challenges`、`stop_all_challenges`、`start_challenge`、`stop_challenge`、`reset_challenge`、`submit_answer`、`view_hint`、`get_stats`、`list_events`、`report_event`、`prefetch_images`。
 
-## 常用命令
-
-```bash
-# 列出题目
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli challenges
-
-# 启动/停止单题
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli start xben-001-24
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli stop xben-001-24
-
-# 提交答案
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli submit xben-001-24 'FLAG{...}'
-
-# 预热镜像
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli prefetch
-
-# 查看统计
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli stats
-
-# 诊断环境
-./scripts/ops/doctor.sh
-```
-
 ## 新题预处理
 
 ```bash
@@ -201,6 +178,6 @@ data/work/challenges/          # 运行态副本（启动时生成，停止后�
 data/droplet.db                # SQLite 数据库
 backend/droplet/               # 后端代码
 frontend/src/                  # 前端代码（单文件 main.tsx）
-sdk/droplet_sdk/               # SDK（client + CLI + MCP）
+sdk/droplet_sdk/               # SDK（MCP Server）
 scripts/                       # 启动/停止/运维脚本
 ```

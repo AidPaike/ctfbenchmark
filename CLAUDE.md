@@ -31,10 +31,6 @@ DROPLET_PRESTART_CHALLENGES=0 ./scripts/dev/dev-backend.sh
 # 停止
 ./scripts/platform/stop.sh
 
-# SDK CLI
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli challenges
-PYTHONPATH=backend:sdk python -m droplet_sdk.cli submit xben-001-24 'FLAG{...}'
-
 # 新题预处理
 python -m datasets.preprocessor --raw-path /path/to/raw --output-dir datasets/drafts/my-suite --challenge-id RAW-001
 ```
@@ -60,9 +56,8 @@ python -m datasets.preprocessor --raw-path /path/to/raw --output-dir datasets/dr
 
 ### SDK `sdk/droplet_sdk/`
 
-- `client.py`：`DropletClient`，httpx 封装。
-- `cli.py`：argparse 子命令。
-- `mcp_server.py`：FastMCP 工具集。
+- `client.py`：`DropletClient`，httpx 封装（内部模块，仅供 `mcp_server` 使用）。
+- `mcp_server.py`：FastMCP 工具集，SDK 的唯一公开接口。
 
 ### 数据库表
 
