@@ -8,44 +8,27 @@ from fastapi.testclient import TestClient
 from droplet import app as app_module
 from droplet.events import EventStore
 from droplet.models import Challenge
+from tests.helpers import auth_headers, make_challenge
 
 
-AUTH = {"Authorization": "Bearer droplet_dev_admin"}
-
-
-def _challenge(template: Path, challenge_id: str = "contract-001") -> Challenge:
-    template.mkdir(parents=True, exist_ok=True)
-    (template / "docker-compose.yml").write_text(
-        """services:
-  web:
-    image: nginx:alpine
-    ports:
-      - "8080:80"
-""",
-        encoding="utf-8",
-    )
-    return Challenge(
-        id=challenge_id,
-        title="Contract Challenge",
-        description="A contract-test challenge",
-        category="web",
-        task_type="web_ctf_online",
-        difficulty="easy",
-        tags=["contract"],
-        hint="try the obvious ID",
-        root=str(template),
-        compose_path=str(template / "docker-compose.yml"),
-        expose=[{"name": "web", "protocol": "http", "service": "web", "container_port": 80}],
-    )
+AUTH = auth_headers()
 
 
 @pytest.fixture()
 def api_contract(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("DROPLET_PRESTART_CHALLENGES", "0")
+    monkeypatch.setenv("DROPLET_PREFETCH_IMAGES", "0")
     manager = app_module.manager
     old_events = manager.events
     manager.events = EventStore(tmp_path / "events.jsonl")
-    challenge = _challenge(tmp_path / "template")
+    challenge = make_challenge(
+        tmp_path / "template",
+        challenge_id="contract-001",
+        title="Contract Challenge",
+        description="A contract-test challenge",
+        tags=["contract"],
+        hint="try the obvious ID",
+    )
 
     def fake_load_tasks() -> None:
         manager.challenges = {challenge.id: challenge.model_copy(deep=True)}
@@ -98,6 +81,18 @@ def _wait_for_status(client, expected: str = "running", timeout: float = 2.0) ->
             return challenge
         time.sleep(0.05)
     raise AssertionError(f"Challenge did not reach status {expected}")
+
+
+def _wait_for_prestart(client, timeout: float = 2.0) -> dict:
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        health = client.get("/api/health").json()
+        if health.get("prestart") is not None:
+            return health["prestart"]
+        time.sleep(0.05)
+    raise AssertionError("Prestart did not report status")
 
 
 def test_start_all_starts_actual_challenge_services(api_contract) -> None:
@@ -222,13 +217,54 @@ def test_tencent_compat_api_returns_running_ports_and_accepts_answers(api_contra
     }
 
 
+def test_startup_does_not_prestart_challenges_by_default(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("DROPLET_PRESTART_CHALLENGES", raising=False)
+    monkeypatch.setenv("DROPLET_PREFETCH_IMAGES", "0")
+    manager = app_module.manager
+    old_events = manager.events
+    manager.events = EventStore(tmp_path / "events.jsonl")
+    challenge = make_challenge(
+        tmp_path / "template",
+        challenge_id="contract-001",
+        title="Contract Challenge",
+        description="A contract-test challenge",
+        tags=["contract"],
+        hint="try the obvious ID",
+    )
+    start_calls = []
+
+    def fake_load_tasks() -> None:
+        manager.challenges = {challenge.id: challenge.model_copy(deep=True)}
+
+    monkeypatch.setattr(manager, "load_tasks", fake_load_tasks)
+    monkeypatch.setattr(
+        manager, "start_all", lambda challenge_ids=None: start_calls.append(challenge_ids)
+    )
+
+    with TestClient(app_module.app) as client:
+        health = client.get("/api/health").json()
+        assert health["prestart"] is None
+
+    assert start_calls == []
+    manager.challenges = {}
+    manager.events = old_events
+
+
 def test_startup_can_prestart_selected_challenges(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("DROPLET_PRESTART_CHALLENGES", "1")
+    monkeypatch.setenv("DROPLET_PREFETCH_IMAGES", "0")
     monkeypatch.setenv("DROPLET_PRESTART_IDS", "contract-001")
     manager = app_module.manager
     old_events = manager.events
     manager.events = EventStore(tmp_path / "events.jsonl")
-    challenge = _challenge(tmp_path / "template")
+    challenge = make_challenge(
+        tmp_path / "template",
+        challenge_id="contract-001",
+        title="Contract Challenge",
+        description="A contract-test challenge",
+        tags=["contract"],
+        hint="try the obvious ID",
+    )
 
     def fake_load_tasks() -> None:
         manager.challenges = {challenge.id: challenge.model_copy(deep=True)}
@@ -246,8 +282,8 @@ def test_startup_can_prestart_selected_challenges(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr(manager, "_stop_compose", lambda _challenge: None)
 
     with TestClient(app_module.app) as client:
-        health = client.get("/api/health").json()
-        assert health["prestart"]["started"] == ["contract-001"]
+        prestart = _wait_for_prestart(client)
+        assert prestart["started"] == ["contract-001"]
         # Prestart is asynchronous; wait briefly for the background thread to finish
         challenge = _wait_for_status(client, "running")
         assert challenge["status"] == "running"

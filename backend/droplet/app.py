@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
@@ -12,17 +15,20 @@ from fastapi.responses import JSONResponse
 
 from droplet.database import init_db, migrate_jsonl_to_sqlite
 from droplet.events import DEFAULT_EVENT_LOG
-from droplet.logging_config import setup_logging
+from droplet.logging_config import ACCESS_LOGGER_NAME, setup_logging
 from droplet.manager import DropletManager
 
 
 # [1] Module-level singleton: one DropletManager instance shared across all requests
 # 模块级单例：一个 DropletManager 实例被所有请求共享
 logger = logging.getLogger("droplet.app")
+# Per-request access logs go to a dedicated logger that is shown on the terminal
+# but not persisted to SQLite (avoids a DB write per poll). See logging_config.
+access_logger = logging.getLogger(ACCESS_LOGGER_NAME)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-ADMIN_TOKEN = "droplet_dev_admin"
+ADMIN_TOKEN = os.getenv("DROPLET_API_TOKEN", "droplet_dev_admin")
 manager = DropletManager(
     dataset_root=Path(os.getenv("DROPLET_DATASET_ROOT", _PROJECT_ROOT / "datasets")),
     work_root=Path(os.getenv("DROPLET_WORK_ROOT", _PROJECT_ROOT / "data" / "work")),
@@ -30,13 +36,13 @@ manager = DropletManager(
 )
 
 
-# [2] Simple bearer token check; accepts the hardcoded admin token OR any token starting with "droplet_"
-# 简单的 bearer token 检查；接受硬编码的管理员 token 或任何以 "droplet_" 开头的 token
+# [2] Simple bearer token check; accepts only the configured admin token.
+# 简单的 bearer token 检查；仅接受配置的管理员 token。
 def require_auth(authorization: Annotated[str | None, Header()] = None) -> None:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
-    if token != ADMIN_TOKEN and not token.startswith("droplet_"):
+    if not secrets.compare_digest(token, ADMIN_TOKEN):
         raise HTTPException(status_code=401, detail="Invalid bearer token")
 
 
@@ -56,7 +62,38 @@ def _prestart_ids() -> list[str] | None:
     return [item.strip().lower() for item in raw.split(",") if item.strip()]
 
 
-app = FastAPI(title="Droplet", version="0.6.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Startup: load challenges, prefetch images, prestart. Shutdown: cleanup."""
+    setup_logging()
+    init_db()
+    migrate_jsonl_to_sqlite(DEFAULT_EVENT_LOG)
+    manager.load_tasks()
+    logger.info("Droplet startup complete", extra={"challenge_count": len(manager.challenges)})
+    app.state.prestart = None
+
+    import threading
+
+    def _deferred_start() -> None:
+        import time as _time
+
+        if _env_enabled("DROPLET_PREFETCH_IMAGES", default=True):
+            logger.info("Pre-building Docker images...")
+            manager.prefetch_images()
+            while manager.prefetch_progress().get("running"):
+                _time.sleep(1)
+            logger.info("Image pre-build complete.")
+
+        if _env_enabled("DROPLET_PRESTART_CHALLENGES", default=False):
+            prestart_ids = _prestart_ids()
+            app.state.prestart = manager.start_all(prestart_ids)
+
+    threading.Thread(target=_deferred_start, daemon=True).start()
+    yield
+    manager.shutdown()
+
+
+app = FastAPI(title="Droplet", version="0.6.0", lifespan=lifespan)
 
 # [4] CORS restricted to the frontend origin only; not open to arbitrary domains
 # CORS 仅限前端来源；不对任意域名开放
@@ -76,7 +113,7 @@ async def log_requests(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
     duration_ms = round((time.time() - start) * 1000, 2)
-    logger.info(
+    access_logger.info(
         f"{request.method} {request.url.path} → {response.status_code} ({duration_ms}ms)",
         extra={
             "method": request.method,
@@ -86,43 +123,6 @@ async def log_requests(request: Request, call_next):
         },
     )
     return response
-
-
-# [5] FastAPI lifecycle hooks: load challenges on startup, graceful shutdown on exit
-# FastAPI 生命周期钩子：启动时加载题目，退出时优雅关闭
-@app.on_event("startup")
-def startup() -> None:
-    setup_logging()
-    init_db()
-    migrate_jsonl_to_sqlite(DEFAULT_EVENT_LOG)
-    manager.load_tasks()
-    logger.info("Droplet startup complete", extra={"challenge_count": len(manager.challenges)})
-    app.state.prestart = None
-
-    import threading
-
-    def _deferred_start() -> None:
-        import time
-
-        # Phase 1: Prefetch images (always runs unless explicitly disabled)
-        if _env_enabled("DROPLET_PREFETCH_IMAGES", default=True):
-            logger.info("Pre-pulling Docker images...")
-            manager.prefetch_images()
-            while manager.prefetch_progress().get("running"):
-                time.sleep(1)
-            logger.info("Image prefetch complete.")
-
-        # Phase 2: Pre-start challenges (only if enabled)
-        if _env_enabled("DROPLET_PRESTART_CHALLENGES", default=True):
-            prestart_ids = _prestart_ids()
-            app.state.prestart = manager.start_all(prestart_ids)
-
-    threading.Thread(target=_deferred_start, daemon=True).start()
-
-
-@app.on_event("shutdown")
-def shutdown() -> None:
-    manager.shutdown()
 
 
 @app.get("/api/health")
@@ -373,10 +373,12 @@ def compat_answer(payload: dict, _: None = Depends(require_auth)) -> dict:
         challenge = manager.get_challenge(payload["challenge_code"].lower())
         result = manager.submit(challenge.id, payload["answer"])
         return {
-            "correct": False,
-            "judged": False,
+            "correct": bool(result.get("correct")),
+            "judged": bool(result.get("judged")),
             "accepted": bool(result["accepted"]),
-            "earned_points": 0,
+            "earned_points": int(result.get("score_after_hint_penalty", 0) * 1000)
+            if result.get("correct")
+            else 0,
             "is_solved": challenge.solved,
             "message": result["message"],
         }

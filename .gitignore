@@ -15,6 +15,7 @@ venv/
 data/
 repos/
 logs/
+smoke_test_results.json
 
 # Challenge datasets (large, source-specific, not version-controlled)
 # Ignore all dataset content by default; only keep code/config tracked

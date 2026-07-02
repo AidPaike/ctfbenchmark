@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Generator
 
+from sqlalchemy import event
 from sqlmodel import Field, Session, SQLModel, UniqueConstraint, create_engine, select
 
 
@@ -23,6 +24,23 @@ _engine = None
 _engine_path = None
 
 
+def _apply_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+    """Set per-connection PRAGMAs so reads don't block on writes.
+
+    WAL lets readers and a single writer proceed concurrently; synchronous=NORMAL
+    is the safe/fast pairing for WAL; busy_timeout makes brief lock contention
+    (e.g. background prefetch vs. polling) wait instead of raising "database is
+    locked". Applied on every new connection because PRAGMAs are connection-scoped.
+    """
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+    finally:
+        cursor.close()
+
+
 def get_engine():
     global _engine, _engine_path
     raw = os.getenv("DROPLET_DATABASE_PATH")
@@ -35,6 +53,7 @@ def get_engine():
             connect_args={"check_same_thread": False},
             echo=False,
         )
+        event.listen(_engine, "connect", _apply_sqlite_pragmas)
     return _engine
 
 
@@ -47,26 +66,153 @@ def reset_engine() -> None:
 def init_db() -> None:
     engine = get_engine()
     SQLModel.metadata.create_all(engine)
-    _ensure_sqlite_columns(engine)
+    _auto_migrate_columns(engine)
 
 
-def _ensure_sqlite_columns(engine) -> None:
-    """Apply small additive SQLite migrations for existing local databases."""
+def prune_system_logs(keep: int | None = None) -> int:
+    """Delete all but the most recent ``keep`` rows from ``system_logs``.
+
+    The log table is append-only and was observed growing without bound (68k
+    rows / 28MB). This caps it to a recent window so a long-running platform
+    doesn't accumulate disk indefinitely. ``keep`` defaults to the
+    ``DROPLET_SYSTEM_LOG_MAX_ROWS`` env var (5000). Returns rows deleted.
+    """
+    if keep is None:
+        try:
+            keep = int(os.getenv("DROPLET_SYSTEM_LOG_MAX_ROWS", "5000"))
+        except ValueError:
+            keep = 5000
+    keep = max(keep, 0)
+
+    engine = get_engine()
     with engine.begin() as connection:
-        tables = {
+        exists = connection.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='system_logs'"
+        ).first()
+        if not exists:
+            return 0
+        result = connection.exec_driver_sql(
+            "DELETE FROM system_logs WHERE id NOT IN "
+            "(SELECT id FROM system_logs ORDER BY id DESC LIMIT ?)",
+            (keep,),
+        )
+        return result.rowcount or 0
+
+
+# ── Column type mapping for ALTER TABLE DEFAULT values ────────────────
+
+_SQLITE_DEFAULTS: dict[str, str] = {
+    "VARCHAR": "''",
+    "TEXT": "''",
+    "STRING": "''",
+    "INTEGER": "0",
+    "INT": "0",
+    "BIGINT": "0",
+    "SMALLINT": "0",
+    "FLOAT": "0.0",
+    "REAL": "0.0",
+    "NUMERIC": "0.0",
+    "BOOLEAN": "0",
+    "BOOL": "0",
+}
+
+
+def _auto_migrate_columns(engine) -> None:
+    """Detect missing columns in existing tables and add them via ALTER TABLE.
+
+    Compares every column defined in SQLModel.metadata against the actual
+    schema reported by PRAGMA table_info.  Missing columns are added with
+    a safe DEFAULT so existing rows are not broken.
+    """
+    import logging
+
+    logger = logging.getLogger("droplet.database")
+
+    with engine.begin() as connection:
+        existing_tables = {
             row[0]
             for row in connection.exec_driver_sql(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )
         }
-        if "events" in tables:
-            event_columns = {
-                row[1] for row in connection.exec_driver_sql("PRAGMA table_info(events)")
+
+        for table_name, table_obj in SQLModel.metadata.tables.items():
+            if table_name not in existing_tables:
+                continue
+
+            actual_columns = {
+                row[1] for row in connection.exec_driver_sql(f"PRAGMA table_info({table_name})")
             }
-            if "archived" not in event_columns:
-                connection.exec_driver_sql(
-                    "ALTER TABLE events ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0"
-                )
+
+            for column in table_obj.columns:
+                col_name = column.name
+                if col_name in actual_columns:
+                    continue
+
+                col_type = _sqlite_type(column)
+                default = _sqlite_default(column, col_type)
+                nullable = column.nullable
+
+                if nullable and default is None:
+                    ddl = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"
+                elif default is not None:
+                    ddl = (
+                        f"ALTER TABLE {table_name} ADD COLUMN {col_name} "
+                        f"{col_type} NOT NULL DEFAULT {default}"
+                    )
+                else:
+                    ddl = (
+                        f"ALTER TABLE {table_name} ADD COLUMN {col_name} "
+                        f"{col_type} DEFAULT {default}"
+                    )
+
+                logger.info(f"Auto-migrate: {ddl}")
+                connection.exec_driver_sql(ddl)
+
+
+def _sqlite_type(column) -> str:
+    """Return the SQLite column type string for a SQLAlchemy column."""
+    type_str = str(column.type).upper()
+    # Normalize common SQLAlchemy types to SQLite equivalents
+    if "VARCHAR" in type_str or "STRING" in type_str:
+        return "TEXT"
+    if "INTEGER" in type_str or "INT" in type_str:
+        return "INTEGER"
+    if "FLOAT" in type_str or "REAL" in type_str or "NUMERIC" in type_str:
+        return "REAL"
+    if "BOOLEAN" in type_str or "BOOL" in type_str:
+        return "BOOLEAN"
+    if "DATETIME" in type_str or "TIMESTAMP" in type_str:
+        return "TIMESTAMP"
+    # Fallback: extract the base type name
+    base = type_str.split("(")[0].strip()
+    return base or "TEXT"
+
+
+def _sqlite_default(column, col_type: str) -> str | None:
+    """Return a SQL DEFAULT literal for the column, or None if nullable with no default."""
+    if column.default is not None:
+        # Column has an explicit Python default
+        val = column.default.arg
+        if callable(val):
+            # factory defaults (e.g. datetime.now) — let SQLite use NULL
+            return None
+        if isinstance(val, bool):
+            return "1" if val else "0"
+        if isinstance(val, (int, float)):
+            return str(val)
+        if isinstance(val, str):
+            return f"'{val}'"
+        return None
+
+    if column.nullable:
+        return None
+
+    # No default, NOT NULL — infer from type
+    for key, default_val in _SQLITE_DEFAULTS.items():
+        if key in col_type.upper():
+            return default_val
+    return "''"
 
 
 # [3] SQLModel table for audit events — API shape is compatible with the legacy JSONL schema

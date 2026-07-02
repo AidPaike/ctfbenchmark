@@ -14,7 +14,7 @@ class BatchRunner:
 
     def __init__(self, preprocessors: list[BasePreprocessor] | None = None) -> None:
         self._registry: dict[str, BasePreprocessor] = {}
-        for p in (preprocessors or []):
+        for p in preprocessors or []:
             self.register(p)
 
     def register(self, preprocessor: BasePreprocessor) -> None:
@@ -26,8 +26,7 @@ class BatchRunner:
         if dataset_type not in self._registry:
             available = ", ".join(sorted(self._registry)) or "(none)"
             raise KeyError(
-                f"No preprocessor registered for type '{dataset_type}'. "
-                f"Available: {available}"
+                f"No preprocessor registered for type '{dataset_type}'. Available: {available}"
             )
         return self._registry[dataset_type]
 
@@ -58,8 +57,10 @@ class BatchRunner:
 
             preprocessor = self.get(dtype)
             result = preprocessor.process_batch(
-                raw_path, output_dir,
-                dataset_id=dataset_id, overwrite=overwrite,
+                raw_path,
+                output_dir,
+                dataset_id=dataset_id,
+                overwrite=overwrite,
             )
             results.append(result)
         return results

@@ -9,7 +9,13 @@ from typing import Any
 
 from sqlmodel import Session
 
-from droplet.database import SystemLog, get_engine, init_db
+from droplet.database import SystemLog, get_engine, init_db, prune_system_logs
+
+
+# Logger name for per-request HTTP access logs. These are high-volume and
+# ephemeral, so they are shown on the terminal but deliberately NOT persisted
+# to SQLite (see _ExcludeLoggerFilter below).
+ACCESS_LOGGER_NAME = "droplet.access"
 
 
 # ANSI color codes for terminal output
@@ -67,6 +73,22 @@ class SQLiteLogHandler(logging.Handler):
             self.handleError(record)
 
 
+class _ExcludeLoggerFilter(logging.Filter):
+    """Reject log records emitted by a given logger name (or its children).
+
+    Used to keep high-volume HTTP access logs off the SQLite handler so polling
+    doesn't write a DB row per request, while still letting them reach the
+    terminal handler.
+    """
+
+    def __init__(self, prefix: str) -> None:
+        super().__init__()
+        self._prefix = prefix
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not (record.name == self._prefix or record.name.startswith(self._prefix + "."))
+
+
 class ColorFormatter(logging.Formatter):
     """Terminal formatter with timestamps, level colors, and clean layout."""
 
@@ -115,6 +137,9 @@ def setup_logging(
     # doesn't exist yet when setup_logging() runs before init_db().
     init_db()
 
+    # Keep the persisted log table bounded across long-running sessions.
+    prune_system_logs()
+
     root = logging.getLogger()
     root.setLevel(level)
 
@@ -129,10 +154,13 @@ def setup_logging(
     stream_handler.setFormatter(stream_formatter)
     root.addHandler(stream_handler)
 
-    # SQLite handler — structured persistence
+    # SQLite handler — structured persistence.
+    # Excludes per-request access logs so high-frequency polling doesn't write a
+    # DB row per request on the hot path; those still appear on the terminal.
     db_handler = SQLiteLogHandler(level=database_level)
     db_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     db_handler.setFormatter(db_formatter)
+    db_handler.addFilter(_ExcludeLoggerFilter(ACCESS_LOGGER_NAME))
     root.addHandler(db_handler)
 
     # Reduce noise from third-party libraries

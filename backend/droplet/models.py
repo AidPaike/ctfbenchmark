@@ -48,6 +48,7 @@ class Challenge(BaseModel):
     tags: list[str] = Field(default_factory=list)
     hint: str | None = None
     judge_mode: str = "record_only"
+    expected_flag: str | None = None
     root: str
     compose_path: str
     expose: list[dict[str, Any]]
@@ -85,6 +86,7 @@ class Challenge(BaseModel):
             "tags": self.tags,
             "has_hint": self.hint is not None,
             "judge_mode": self.judge_mode,
+            "has_expected_flag": self.expected_flag is not None,
             "status": self.status.value,
             "target_url": self.target_url,
             "ports": self.ports,

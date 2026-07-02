@@ -260,15 +260,14 @@ function App() {
         </div>
       </header>
 
-      {prefetch?.running && (
+      {prefetchProgress?.running && (
         <div className="prefetchBanner">
           <RefreshCw size={15} className="prefetchSpin" />
           <span>镜像预热</span>
           <div className="prefetchBar">
-            <div className="prefetchFill" style={{ width: `${prefetch.total ? (prefetch.current / prefetch.total) * 100 : 0}%` }} />
+            <div className="prefetchFill" style={{ width: `${prefetchProgress.total ? (prefetchProgress.current / prefetchProgress.total) * 100 : 0}%` }} />
           </div>
-          <em>{prefetch.current}/{prefetch.total}</em>
-          <span className="prefetchDetail">{prefetch.current_id.toUpperCase()}{prefetch.pulled > 0 ? ` · 已拉取 ${prefetch.pulled}` : ""}</span>
+          <em>{prefetchProgress.current}/{prefetchProgress.total}</em>
         </div>
       )}
 
@@ -303,7 +302,7 @@ function App() {
                     <h2>{selected.title}</h2>
                   </div>
                   <div className="actionCluster">
-                    <button className="solid" onClick={() => runAction(async () => { await api(`/api/challenges/${selected.id}/start`, { method: "POST" }); })} disabled={running || starting || stopping}>
+                    <button className="solid" onClick={() => runAction(async () => { const action = selected.status === "solved" || selected.status === "error" ? "reset" : "start"; await api(`/api/challenges/${selected.id}/${action}`, { method: "POST" }); })} disabled={running || starting || stopping}>
                       {selected.status === "solved" || selected.status === "error" ? <RotateCcw size={17} /> : <Play size={17} />}
                       {starting ? "启动中" : stopping ? "停止中" : running ? "运行中" : selected.status === "solved" || selected.status === "error" ? "重置环境" : "启动环境"}
                     </button>

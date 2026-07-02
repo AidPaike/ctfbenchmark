@@ -1,4 +1,6 @@
-from droplet_sdk.client import DropletClient
-from droplet_sdk.mcp_server import mcp
+try:
+    from droplet_sdk.mcp_server import mcp  # noqa: F401
 
-__all__ = ["DropletClient", "mcp"]
+    __all__ = ["mcp"]
+except ImportError:
+    __all__ = []

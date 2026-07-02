@@ -407,15 +407,6 @@ h2 {
   flex-shrink: 0;
 }
 
-.prefetchDetail {
-  color: #6a8a96 !important;
-  font-size: 11px !important;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
 .prefetchSpin {
   color: #6ad0ff;
   animation: spin 1s linear infinite;

@@ -9,9 +9,10 @@ import subprocess
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import yaml
 
@@ -72,6 +73,30 @@ class DropletManager:
             os.getenv("DROPLET_DOCKER_NO_PROXY") or os.getenv("NO_PROXY"),
             DEFAULT_DOCKER_NO_PROXY,
         )
+        # [3a] Decide how to treat the Docker *build* proxy. Some environments point
+        # the proxy at loopback (127.0.0.1 — e.g. via ~/.docker/config.json or an
+        # inherited shell var). That address is unreachable from inside a build
+        # container, so apt/pip fail with exit 100. Detect it and neutralise it by
+        # injecting empty proxy build-args (which override docker config.json) so the
+        # build goes direct. A usable, non-loopback proxy is forwarded instead.
+        # 决定如何处理 Docker 构建代理：loopback 代理在容器内不可达，会让 apt/pip 失败，
+        # 检测到就用空 build-arg 覆盖掉走直连；可用的非 loopback 代理则照常转发。
+        ambient_proxy = self._detect_ambient_proxy()
+        if not ambient_proxy:
+            self._proxy_mode: str = "none"
+            self._proxy_value: str | None = None
+        elif _is_loopback_proxy(ambient_proxy):
+            self._proxy_mode = "disable"
+            self._proxy_value = None
+            logger.warning(
+                f"Docker build proxy {ambient_proxy} is on loopback and unreachable "
+                f"inside build containers; neutralising it so builds go direct. "
+                f"Set DROPLET_DOCKER_PROXY to a container-reachable proxy to override."
+            )
+        else:
+            self._proxy_mode = "use"
+            self._proxy_value = ambient_proxy
+            logger.info(f"Using Docker build proxy {ambient_proxy}")
         self.ready_timeout_seconds = int(
             os.getenv("DROPLET_TARGET_READY_TIMEOUT", str(DEFAULT_READY_TIMEOUT_SECONDS))
         )
@@ -85,7 +110,15 @@ class DropletManager:
         )
         self._start_lock = threading.Lock()
         self._prefetch_lock = threading.Lock()
-        self._prefetch_state: dict[str, Any] = {"running": False, "total": 0, "current": 0, "pulled": 0, "skipped": 0, "errors": 0, "current_id": ""}
+        self._prefetch_state: dict[str, Any] = {
+            "running": False,
+            "total": 0,
+            "current": 0,
+            "pulled": 0,
+            "skipped": 0,
+            "errors": 0,
+            "current_id": "",
+        }
 
         self.work_root.mkdir(parents=True, exist_ok=True)
         # [4] Cleanup leftover directories from a previous unclean shutdown to avoid disk leaks or zombie Docker projects
@@ -142,7 +175,7 @@ class DropletManager:
             if challenge.status == ChallengeStatus.running:
                 return challenge
 
-            active_count = self._count_active_challenges()
+            active_count = self._count_active_challenges(exclude_id=challenge.id)
             if active_count >= self.max_concurrent:
                 logger.warning(
                     f"Concurrent limit reached ({active_count}/{self.max_concurrent}), "
@@ -174,12 +207,26 @@ class DropletManager:
 
         return challenge
 
-    def _count_active_challenges(self) -> int:
+    def _has_runtime(self, challenge: Challenge) -> bool:
+        return bool(challenge.compose_project or challenge.work_dir)
+
+    def _should_stop(self, challenge: Challenge) -> bool:
+        return challenge.status in (
+            ChallengeStatus.running,
+            ChallengeStatus.starting,
+            ChallengeStatus.stopping,
+        ) or self._has_runtime(challenge)
+
+    def _count_active_challenges(self, *, exclude_id: str | None = None) -> int:
         return sum(
             1
             for c in self.challenges.values()
-            if c.status
-            in (ChallengeStatus.running, ChallengeStatus.starting, ChallengeStatus.stopping)
+            if c.id != exclude_id
+            and (
+                self._has_runtime(c)
+                or c.status
+                in (ChallengeStatus.running, ChallengeStatus.starting, ChallengeStatus.stopping)
+            )
         )
 
     # [8] Background worker: performs the actual Docker Compose lifecycle
@@ -187,7 +234,7 @@ class DropletManager:
     def _do_start_challenge(self, challenge_id: str) -> None:
         challenge = self.get_challenge(challenge_id)
 
-        if challenge.status == ChallengeStatus.running:
+        if self._has_runtime(challenge):
             self._stop_compose(challenge)
 
         work_dir = (self.work_root / "challenges" / challenge_id).resolve()
@@ -213,6 +260,8 @@ class DropletManager:
             challenge.compose_project = result["project"]
             challenge.target_url = result["target_url"]
             challenge.ports = result["ports"]
+            if "expose" in result:
+                challenge.expose = result["expose"]
             challenge.started_at = now()
             logger.info(
                 f"Challenge {challenge_id} started on {challenge.target_url}",
@@ -231,6 +280,18 @@ class DropletManager:
                 extra={"challenge_id": challenge_id},
                 exc_info=True,
             )
+
+            # Transaction rollback insurance: ensure any residual containers
+            # are stopped even if _start_compose's internal rollback missed them.
+            # 事务回滚保险：即使 _start_compose 的内部回滚漏掉了，也确保残留容器被停止。
+            try:
+                self._stop_compose(challenge)
+            except Exception:
+                pass  # Cleanup failure must not mask the original exception
+
+            if work_dir.exists():
+                shutil.rmtree(work_dir, ignore_errors=True)
+
             if challenge.status == ChallengeStatus.starting:
                 challenge.status = ChallengeStatus.error
                 challenge.error_message = str(exc)
@@ -241,8 +302,6 @@ class DropletManager:
                     level="error",
                     data={"error": str(exc)},
                 )
-            if work_dir.exists():
-                shutil.rmtree(work_dir, ignore_errors=True)
 
     # [8] Batch start: skip already-running and explicitly judged-solved challenges; collect per-challenge errors
     # 批量启动：跳过已在运行和显式判题通过的题目；收集每个题目的错误
@@ -286,7 +345,7 @@ class DropletManager:
         stopped: list[str] = []
         errors: dict[str, str] = {}
         for challenge in list(self.challenges.values()):
-            if challenge.status not in (ChallengeStatus.running, ChallengeStatus.starting):
+            if not self._should_stop(challenge):
                 continue
             try:
                 self.stop_challenge(challenge.id)
@@ -296,7 +355,7 @@ class DropletManager:
         return {"stopped": stopped, "errors": errors}
 
     def prefetch_images(self, challenge_ids: list[str] | None = None) -> dict[str, Any]:
-        """Start pre-pulling Docker images in a background thread.
+        """Start pre-building Docker images in a background thread.
 
         Returns immediately with a summary. Query progress via prefetch_progress().
         """
@@ -329,7 +388,7 @@ class DropletManager:
             return dict(self._prefetch_state)
 
     def _do_prefetch(self, targets: list[str]) -> None:
-        """Background worker: pull images one by one, updating progress."""
+        """Background worker: build images one by one, updating progress."""
         docker_env = self._docker_environment()
 
         for challenge_id in targets:
@@ -356,9 +415,18 @@ class DropletManager:
                 continue
 
             try:
-                logger.info(f"Pre-pulling images for {challenge_id}", extra={"challenge_id": challenge_id})
+                logger.info(
+                    f"Pre-building images for {challenge_id}", extra={"challenge_id": challenge_id}
+                )
                 result = subprocess.run(
-                    ["docker", "compose", "-f", str(compose_src), "pull"],
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_src),
+                        "build",
+                        *self._proxy_build_arg_flags(),
+                    ],
                     cwd=str(Path(challenge.root)),
                     env=docker_env,
                     capture_output=True,
@@ -380,18 +448,23 @@ class DropletManager:
                 with self._prefetch_lock:
                     self._prefetch_state["current"] += 1
                     self._prefetch_state["errors"] += 1
-                logger.warning(f"Prefetch timeout for {challenge_id}", extra={"challenge_id": challenge_id})
+                logger.warning(
+                    f"Prefetch timeout for {challenge_id}", extra={"challenge_id": challenge_id}
+                )
             except Exception as exc:
                 with self._prefetch_lock:
                     self._prefetch_state["current"] += 1
                     self._prefetch_state["errors"] += 1
-                logger.warning(f"Prefetch error for {challenge_id}: {exc}", extra={"challenge_id": challenge_id})
+                logger.warning(
+                    f"Prefetch error for {challenge_id}: {exc}",
+                    extra={"challenge_id": challenge_id},
+                )
 
         with self._prefetch_lock:
             self._prefetch_state["running"] = False
             self._prefetch_state["current_id"] = ""
         logger.info(
-            f"Pre-pull complete: {self._prefetch_state['pulled']} pulled, "
+            f"Pre-build complete: {self._prefetch_state['pulled']} built, "
             f"{self._prefetch_state['skipped']} skipped, "
             f"{self._prefetch_state['errors']} errors"
         )
@@ -401,7 +474,7 @@ class DropletManager:
         with self._start_lock:
             if challenge.status == ChallengeStatus.stopping:
                 return challenge
-            if challenge.status not in (ChallengeStatus.running, ChallengeStatus.starting):
+            if not self._should_stop(challenge):
                 return challenge
             challenge.status = ChallengeStatus.stopping
 
@@ -426,12 +499,14 @@ class DropletManager:
         self._stop_compose(challenge)
         with self._start_lock:
             if challenge.status == ChallengeStatus.stopping:
-                challenge.status = ChallengeStatus.not_started
-                challenge.target_url = None
-                challenge.ports = []
-                challenge.work_dir = None
-                challenge.compose_project = None
-                challenge.finished_at = now()
+                challenge.status = (
+                    ChallengeStatus.solved if challenge.solved else ChallengeStatus.not_started
+                )
+            challenge.target_url = None
+            challenge.ports = []
+            challenge.work_dir = None
+            challenge.compose_project = None
+            challenge.finished_at = now()
         logger.info(f"Challenge {challenge_id} stopped", extra={"challenge_id": challenge_id})
         self.events.record(
             "challenge_stopped",
@@ -446,7 +521,7 @@ class DropletManager:
                 return challenge
             if (
                 challenge.status != ChallengeStatus.running
-                and self._count_active_challenges() >= self.max_concurrent
+                and self._count_active_challenges(exclude_id=challenge.id) >= self.max_concurrent
             ):
                 raise RuntimeError(
                     f"Maximum concurrent environments ({self.max_concurrent}) reached. "
@@ -466,6 +541,10 @@ class DropletManager:
     def _do_reset_challenge(self, challenge_id: str) -> None:
         challenge = self.get_challenge(challenge_id)
         self._stop_compose(challenge)
+        challenge.target_url = None
+        challenge.ports = []
+        challenge.work_dir = None
+        challenge.compose_project = None
         self._clear_progress(challenge_id)
         self._do_start_challenge(challenge_id)
 
@@ -513,7 +592,7 @@ class DropletManager:
                     {
                         "id": sub.id,
                         "challenge_id": sub.challenge_id,
-                        "answer": sub.answer,
+                        "answer": _public_submission_answer(sub.answer),
                         "correct": sub.correct,
                         "score_before": sub.score_before,
                         "score_after": sub.score_after,
@@ -617,8 +696,8 @@ class DropletManager:
             c.submission_count = 0
             c.score = 0.0
 
-    # [9] Submission recording: Droplet must not read challenge flags.
-    # 提交记录：Droplet 不读取题目 Flag，也不自动判题。
+    # [9] Submission recording with optional automated flag judging.
+    # 提交记录，支持自动 Flag 判题。
     def submit(self, challenge_id: str, answer: str) -> dict[str, Any]:
         challenge = self.get_challenge(challenge_id)
         if challenge.status != ChallengeStatus.running:
@@ -630,16 +709,35 @@ class DropletManager:
             extra={"challenge_id": challenge_id},
         )
 
+        # Automated judging: compare against expected_flag when available
+        correct = None
+        judged = False
+        score_before = challenge.score
+        score_after = challenge.score
+
+        if challenge.expected_flag is not None:
+            judged = True
+            correct = answer == challenge.expected_flag
+            if correct and not challenge.solved:
+                challenge.solved = True
+                score_after = max(0.0, 1.0 - abs(challenge.hint_penalty))
+                challenge.score = score_after
+                logger.info(
+                    f"Challenge {challenge_id} solved! Score: {score_after}",
+                    extra={"challenge_id": challenge_id, "score": score_after},
+                )
+
         self._persist_progress(challenge)
-        self._record_submission(challenge, answer, False, 0.0, 0.0)
+        self._record_submission(challenge, answer, correct or False, score_before, score_after)
 
         self.events.record(
-            "submission_recorded",
-            "收到提交，未自动判题",
+            "submission_judged" if judged else "submission_recorded",
+            "提交已判题" if judged else "收到提交，未自动判题",
             challenge_id=challenge.id,
             data={
                 "accepted": True,
-                "judged": False,
+                "judged": judged,
+                "correct": correct,
                 "judge_mode": challenge.judge_mode,
                 "submission_count": challenge.submission_count,
             },
@@ -647,12 +745,19 @@ class DropletManager:
 
         return {
             "accepted": True,
-            "judged": False,
-            "correct": None,
-            "score_before_hint_penalty": None,
-            "score_after_hint_penalty": None,
+            "judged": judged,
+            "correct": correct,
+            "score_before_hint_penalty": score_before if judged else None,
+            "score_after_hint_penalty": score_after if judged else None,
             "submission_count": challenge.submission_count,
-            "message": "submission recorded; no flag judge is configured",
+            "is_solved": challenge.solved,
+            "message": (
+                "correct flag"
+                if correct and judged
+                else "incorrect flag"
+                if judged
+                else "submission recorded; no flag judge is configured"
+            ),
         }
 
     def hint(self, challenge_id: str) -> dict[str, Any]:
@@ -702,9 +807,12 @@ class DropletManager:
         if thread is not None:
             thread.join(timeout=1)
         for challenge in list(self.challenges.values()):
-            if challenge.status == ChallengeStatus.running:
+            if self._should_stop(challenge):
                 self._stop_compose(challenge)
-                challenge.status = ChallengeStatus.not_started
+                if challenge.solved:
+                    challenge.status = ChallengeStatus.solved
+                else:
+                    challenge.status = ChallengeStatus.not_started
                 challenge.target_url = None
                 challenge.ports = []
                 challenge.work_dir = None
@@ -724,14 +832,31 @@ class DropletManager:
         # 先剥离过时代理，再注入当前代理 —— 防止旧地址泄漏到构建中
         self._strip_proxy_config(work_dir, compose_path)
         self._apply_docker_proxy(work_dir, compose_path)
+        # [11b] Patch Dockerfiles using old base images whose apt repos have expired
+        # 修补使用旧基础镜像（apt 源已过期）的 Dockerfile
+        self._patch_old_dockerfiles(work_dir)
+        # [11c] Fix WordPress redirect issues by setting WP_HOME/WP_SITEURL
+        self._fix_wordpress_redirects(work_dir, compose_path)
         # [12] Let Docker pick host ports via "0:container_port" to eliminate the TOCTOU race.
         # 让 Docker 通过 "0:container_port" 选择主机端口，消除 TOCTOU 竞争。
         exposed = self._rewrite_ports(compose_path, challenge.expose)
         project = f"{self.compose_prefix}_{challenge.id}"
-        command = ["docker", "compose", "-p", project, "-f", str(compose_path), "up", "-d"]
-        if _env_enabled("DROPLET_FORCE_REBUILD"):
-            command.insert(-1, "--build")
+        command = [
+            "docker",
+            "compose",
+            "-p",
+            project,
+            "-f",
+            str(compose_path),
+            "up",
+            "-d",
+            "--build",
+        ]
         docker_env = self._docker_environment()
+        # Disable BuildKit for challenges using old MySQL images to avoid
+        # "failed to load cache key" validation errors
+        if self._has_old_mysql_image(work_dir):
+            docker_env["DOCKER_BUILDKIT"] = "0"
         logger.debug(
             f"Docker compose up: {' '.join(command)}",
             extra={"challenge_id": challenge.id, "docker_command": " ".join(command)},
@@ -793,37 +918,72 @@ class DropletManager:
             )
             raise RuntimeError(detail)
 
-        # [12a] Resolve the actual host ports Docker bound.  This is the source of truth.
-        # 解析 Docker 实际绑定主机端口。这是唯一可信来源。
-        exposed = self._resolve_ports(project, exposed, docker_env)
+        # [12a] Transaction: docker compose up succeeded, but port resolution or
+        # health checks may still fail.  Roll back containers on failure to avoid leaks.
+        # 事务：docker compose up 已成功，但端口解析或健康检查仍可能失败。
+        # 失败时回滚容器以避免泄漏。
+        try:
+            # Resolve the actual host ports Docker bound.  This is the source of truth.
+            # 解析 Docker 实际绑定主机端口。这是唯一可信来源。
+            exposed = self._resolve_ports(project, exposed, docker_env)
 
-        target_url = None
-        ports: list[int] = []
-        if exposed:
-            endpoint = exposed[0]
-            target_url = f"{endpoint['protocol']}://{self.public_host}:{endpoint['host_port']}"
-            ports = [item["host_port"] for item in exposed]
-            endpoints = [
-                {
-                    "type": item["protocol"],
-                    "label": item.get("name", "target"),
-                    "url": f"{item['protocol']}://{self.public_host}:{item['host_port']}",
-                    "host": self.public_host,
-                    "port": item["host_port"],
-                    "service": item.get("service"),
-                }
-                for item in exposed
-            ]
-            # [13] Block until the service is actually reachable so callers can rely on target_url being ready
-            # 阻塞直到服务实际可达，这样调用方可以确信 target_url 已就绪
-            self._wait_for_endpoints(endpoints)
+            target_url = None
+            ports: list[int] = []
+            if exposed:
+                endpoint = exposed[0]
+                target_url = f"{endpoint['protocol']}://{self.public_host}:{endpoint['host_port']}"
+                ports = [item["host_port"] for item in exposed]
+                endpoints = [
+                    {
+                        "type": item["protocol"],
+                        "label": item.get("name", "target"),
+                        "url": f"{item['protocol']}://{self.public_host}:{item['host_port']}",
+                        "host": self.public_host,
+                        "port": item["host_port"],
+                        "service": item.get("service"),
+                    }
+                    for item in exposed
+                ]
+                # Block until the service is actually reachable so callers can rely on target_url being ready
+                # 阻塞直到服务实际可达，这样调用方可以确信 target_url 已就绪
+                self._wait_for_endpoints(endpoints)
 
-        return {
-            "project": project,
-            "work_dir": str(work_dir),
-            "target_url": target_url,
-            "ports": ports,
-        }
+            return {
+                "project": project,
+                "work_dir": str(work_dir),
+                "target_url": target_url,
+                "ports": ports,
+                "expose": exposed,
+            }
+        except Exception:
+            # Stash project info so the outer rollback insurance can find
+            # the containers even if this inner down fails.
+            # 登记项目信息，确保即使内部 down 失败，外层回滚保险也能定位到容器。
+            challenge.compose_project = project
+            challenge.work_dir = str(work_dir)
+            logger.warning(
+                f"Rolling back challenge {challenge.id} — containers started but checks failed",
+                extra={"challenge_id": challenge.id},
+            )
+            subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "-p",
+                    project,
+                    "-f",
+                    str(compose_path),
+                    "down",
+                    "-v",
+                    "--remove-orphans",
+                ],
+                cwd=str(work_dir),
+                env=docker_env,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            raise
 
     def _wait_for_endpoints(self, endpoints: list[dict[str, Any]]) -> None:
         deadline = time.monotonic() + self.ready_timeout_seconds
@@ -951,17 +1111,9 @@ class DropletManager:
 
             # Container is running — also verify the endpoint is reachable.
             # 容器在运行，同时验证端口是否可达。
-            if challenge.ports and challenge.target_url:
-                for item in challenge.expose:
-                    host_port = item.get("host_port")
-                    if host_port is None:
-                        continue
-                    endpoint = {
-                        "type": item.get("protocol", "tcp"),
-                        "host": self.public_host,
-                        "port": host_port,
-                        "url": challenge.target_url,
-                    }
+            endpoints = self._runtime_endpoints(challenge)
+            if endpoints:
+                for endpoint in endpoints:
                     ok, error = _endpoint_ready(endpoint)
                     if not ok:
                         logger.warning(
@@ -979,6 +1131,36 @@ class DropletManager:
                             data={"error": error, "target_url": challenge.target_url},
                         )
                         break
+
+    def _runtime_endpoints(self, challenge: Challenge) -> list[dict[str, Any]]:
+        endpoints: list[dict[str, Any]] = []
+        for index, item in enumerate(challenge.expose):
+            host_port = item.get("host_port")
+            if host_port is None and index < len(challenge.ports):
+                host_port = challenge.ports[index]
+            if host_port is None:
+                continue
+            protocol = str(item.get("protocol", "tcp"))
+            endpoint = {
+                "type": protocol,
+                "host": self.public_host,
+                "port": int(host_port),
+                "url": f"{protocol}://{self.public_host}:{int(host_port)}",
+            }
+            endpoints.append(endpoint)
+
+        if not endpoints and challenge.ports:
+            protocol = "http" if str(challenge.target_url or "").startswith("http") else "tcp"
+            endpoints.append(
+                {
+                    "type": protocol,
+                    "host": self.public_host,
+                    "port": int(challenge.ports[0]),
+                    "url": challenge.target_url
+                    or f"{protocol}://{self.public_host}:{int(challenge.ports[0])}",
+                }
+            )
+        return endpoints
 
     def _is_compose_running(self, challenge: Challenge) -> bool:
         project = challenge.compose_project
@@ -1005,20 +1187,73 @@ class DropletManager:
     # Docker helpers: proxy injection / port rewriting
     # ------------------------------------------------------------------
 
-    def _docker_environment(self) -> dict[str, str]:
-        env = os.environ.copy()
-        if not self.docker_proxy:
-            return env
+    def _detect_ambient_proxy(self) -> str | None:
+        """Find the proxy that would otherwise be injected into Docker builds.
+
+        Order of precedence: explicit ``DROPLET_DOCKER_PROXY``, then inherited shell
+        vars, then the docker client config (``~/.docker/config.json``) which Docker
+        injects into every build automatically.
+        """
+        if self.docker_proxy:
+            return self.docker_proxy
         for key in PROXY_URL_KEYS:
-            env[key] = self.docker_proxy
+            value = os.getenv(key)
+            if value and value.strip():
+                return value.strip()
+        try:
+            cfg = Path.home() / ".docker" / "config.json"
+            if cfg.exists():
+                data = json.loads(cfg.read_text(encoding="utf-8")) or {}
+                default = (data.get("proxies") or {}).get("default") or {}
+                value = default.get("httpProxy") or default.get("httpsProxy")
+                if value and str(value).strip():
+                    return str(value).strip()
+        except Exception:
+            pass
+        return None
+
+    def _proxy_build_arg_flags(self) -> list[str]:
+        """``--build-arg`` flags for the prefetch ``docker compose build`` command.
+
+        Mirrors :meth:`_apply_docker_proxy`: forward a usable proxy, or inject empty
+        proxy args to override a loopback proxy from docker config.json.
+        """
+        if self._proxy_mode == "none":
+            return []
+        proxy_value = self._proxy_value if self._proxy_mode == "use" else ""
+        flags: list[str] = []
+        for key in PROXY_URL_KEYS:
+            flags += ["--build-arg", f"{key}={proxy_value}"]
         if self.docker_no_proxy:
             for key in NO_PROXY_KEYS:
-                env[key] = self.docker_no_proxy
+                flags += ["--build-arg", f"{key}={self.docker_no_proxy}"]
+        return flags
+
+    def _docker_environment(self) -> dict[str, str]:
+        env = os.environ.copy()
+        if self._proxy_mode == "use" and self._proxy_value:
+            for key in PROXY_URL_KEYS:
+                env[key] = self._proxy_value
+            if self.docker_no_proxy:
+                for key in NO_PROXY_KEYS:
+                    env[key] = self.docker_no_proxy
+        elif self._proxy_mode == "disable":
+            # Drop the unreachable loopback proxy so the docker CLI itself does not
+            # try to use it; the in-container build is handled by empty build-args.
+            for key in PROXY_URL_KEYS:
+                env.pop(key, None)
+            if self.docker_no_proxy:
+                for key in NO_PROXY_KEYS:
+                    env[key] = self.docker_no_proxy
         return env
 
     def _apply_docker_proxy(self, work_dir: Path, compose_path: Path) -> None:
-        if not self.docker_proxy:
+        if self._proxy_mode == "none":
             return
+        # 'use' -> forward the proxy; 'disable' -> empty proxy build-args that override
+        # a loopback proxy docker config.json would otherwise inject, so apt/pip run
+        # against the build's direct network egress.
+        proxy_value = self._proxy_value if self._proxy_mode == "use" else ""
 
         data = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
         changed = False
@@ -1031,9 +1266,7 @@ class DropletManager:
                 service["build"] = build
             if not isinstance(build, dict):
                 continue
-            build["args"] = _proxy_build_args(
-                build.get("args"), self.docker_proxy, self.docker_no_proxy
-            )
+            build["args"] = _proxy_build_args(build.get("args"), proxy_value, self.docker_no_proxy)
             changed = True
         if changed:
             compose_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
@@ -1080,6 +1313,228 @@ class DropletManager:
             out.append({**item, "host_port": 0})
         compose_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
         return out
+
+    # ── Old-image apt fix ────────────────────────────────────────────────
+    # Fix Dockerfiles that use old base images whose apt repositories have
+    # expired or moved.  This patches ONLY the copy in work_dir, never the
+    # git-tracked original in datasets/.
+
+    # Debian release → archive mirror URL
+    _APT_ARCHIVE_MAP: ClassVar[dict[str, str]] = {
+        "jessie": "http://archive.debian.org/debian",
+        "stretch": "http://archive.debian.org/debian",
+        "buster": "http://archive.debian.org/debian",
+        "bullseye": "http://deb.debian.org/debian",
+        "bookworm": "http://deb.debian.org/debian",
+    }
+
+    # Base images that are known to have broken apt repos
+    _OLD_IMAGE_PATTERNS: ClassVar[list[tuple[str, str]]] = [
+        ("python:2.7", "buster"),
+        ("python:3.8-slim-buster", "buster"),
+        ("python:3.9-slim-bullseye", "bullseye"),
+        ("debian:buster", "buster"),
+        ("debian:bullseye", "bullseye"),
+        ("debian:stretch", "stretch"),
+        ("php:5.6", "stretch"),
+        ("php:7.0", "stretch"),
+        ("php:7.1", "stretch"),
+        ("php:7.2", "stretch"),
+        ("php:7.3", "buster"),
+        ("php:7.4", "buster"),
+        ("php:8.0", "bullseye"),
+        ("php:8.1", "bullseye"),
+        ("node:14", "buster"),
+        ("node:16", "bullseye"),
+        ("ruby:2", "stretch"),
+        ("ruby:3.0", "buster"),
+        ("ruby:3.1", "bullseye"),
+        ("httpd:2.4.49", "stretch"),
+        ("httpd:2.4.50", "stretch"),
+        ("tomcat:9-jdk17", "bullseye"),
+        ("maven:3.8.4-openjdk-17-slim", "bullseye"),
+        ("haproxy:2.0", "buster"),
+        ("mitmproxy/mitmproxy:6", "buster"),
+    ]
+
+    # Node.js version upgrades for images with broken dependencies
+    _NODE_UPGRADES: ClassVar[dict[str, str]] = {
+        "node:14": "node:18",
+        "node:16": "node:18",
+    }
+
+    def _patch_old_dockerfiles(self, work_dir: Path) -> None:
+        """Inject apt archive fix into Dockerfiles using old base images.
+
+        Only modifies the copy in *work_dir*; the original dataset is untouched.
+        """
+        patched = 0
+        for dockerfile in work_dir.rglob("Dockerfile"):
+            try:
+                text = dockerfile.read_text(encoding="utf-8")
+            except Exception:
+                continue
+
+            # Also fix old Node.js images with broken dependencies
+            original_text = text
+            for old_img, new_img in self._NODE_UPGRADES.items():
+                if old_img in text:
+                    text = text.replace(old_img, new_img)
+                    patched += 1
+                    logger.info(
+                        f"Upgraded {old_img} → {new_img} in {dockerfile.relative_to(work_dir)}"
+                    )
+
+            # Detect base image
+            release = self._detect_debian_release(text)
+            if release is None:
+                # Still write if node upgrade happened
+                if text != original_text:
+                    dockerfile.write_text(text, encoding="utf-8")
+                continue
+
+            archive_url = self._APT_ARCHIVE_MAP.get(release)
+            if archive_url is None:
+                continue
+
+            # Check if there's an apt-get or composer in the file that needs fixing
+            has_apt = "apt-get update" in text
+            has_composer = "composer install" in text
+            if not has_apt and not has_composer:
+                continue
+
+            # Prepend apt-fix commands to every `apt-get update` call.
+            # Must be in the SAME RUN layer so BuildKit doesn't cache a stale
+            # apt-get result from a previous (broken) build.
+            old_releases = ("jessie", "stretch", "buster")
+            if release in old_releases:
+                # Old releases: switch to archive.debian.org
+                apt_fix = (
+                    'export no_proxy="$no_proxy,archive.debian.org"; '
+                    'export NO_PROXY="$NO_PROXY,archive.debian.org"; '
+                    "sed -i 's|deb\\.debian\\.org|archive\\.debian\\.org|g' "
+                    "/etc/apt/sources.list 2>/dev/null; "
+                    "sed -i 's|security\\.debian\\.org|archive\\.debian\\.org|g' "
+                    "/etc/apt/sources.list 2>/dev/null; "
+                    "apt-get update 2>/dev/null; "
+                    "sed -i 's|^deb http://archive\\.debian\\.org/debian-security|# &|' "
+                    "/etc/apt/sources.list 2>/dev/null; "
+                    "sed -i '/jessie-updates/d; /buster-updates/d' "
+                    "/etc/apt/sources.list 2>/dev/null; "
+                    "echo 'Acquire::Check-Valid-Until \"false\";' "
+                    "> /etc/apt/apt.conf.d/99no-check-valid; "
+                )
+            else:
+                # Bullseye+: keep original mirror, just disable expiry check
+                apt_fix = (
+                    "echo 'Acquire::Check-Valid-Until \"false\";' "
+                    "> /etc/apt/apt.conf.d/99no-check-valid; "
+                )
+            composer_fix = "composer config --global policy.advisories.block false 2>/dev/null; "
+            lines = text.split("\n")
+            new_lines: list[str] = []
+            for line in lines:
+                stripped = line.strip()
+                if "apt-get update" in stripped and not stripped.startswith("#"):
+                    # Inject apt fix before apt-get update in the same line
+                    new_line = line.replace("apt-get update", apt_fix + "apt-get update")
+                    new_lines.append(new_line)
+                    patched += 1
+                elif "composer install" in stripped and not stripped.startswith("#"):
+                    # Inject composer advisory bypass before composer install
+                    new_line = line.replace("composer install", composer_fix + "composer install")
+                    new_lines.append(new_line)
+                    patched += 1
+                else:
+                    new_lines.append(line)
+
+            if new_lines != lines or text != original_text:
+                dockerfile.write_text(
+                    "\n".join(new_lines) + ("\n" if text.endswith("\n") else ""),
+                    encoding="utf-8",
+                )
+                logger.info(
+                    f"Patched Dockerfile: {dockerfile.relative_to(work_dir)}",
+                )
+
+        if patched:
+            logger.info(f"Patched {patched} apt-get call(s) in {work_dir.name}")
+
+    def _fix_wordpress_redirects(self, work_dir: Path, compose_path: Path) -> None:
+        """Add WORDPRESS_CONFIG_EXTRA to prevent redirect issues.
+
+        WordPress defaults to http://localhost as its site URL, which causes
+        301 redirects to a port-80 URL that doesn't exist on the host.
+        Setting WP_HOME and WP_SITEURL to relative paths avoids this.
+        """
+        data = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
+        changed = False
+        for _name, service in (data.get("services") or {}).items():
+            if not isinstance(service, dict):
+                continue
+            build = service.get("build")
+            if not build:
+                continue
+            # Check if this service uses a WordPress image
+            context = build.get("context", "") if isinstance(build, dict) else str(build)
+            # Also check the Dockerfile for wordpress references
+            dockerfile = work_dir / context / "Dockerfile"
+            if not dockerfile.exists():
+                continue
+            try:
+                df_text = dockerfile.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            if "wordpress" not in df_text.lower():
+                continue
+            # Add WORDPRESS_CONFIG_EXTRA if not already present
+            env = service.get("environment") or {}
+            if isinstance(env, list):
+                env_dict = {}
+                for item in env:
+                    if "=" in str(item):
+                        k, v = str(item).split("=", 1)
+                        env_dict[k] = v
+                env = env_dict
+            if "WORDPRESS_CONFIG_EXTRA" in env:
+                continue
+            env["WORDPRESS_CONFIG_EXTRA"] = "define('WP_HOME', '/'); define('WP_SITEURL', '/');"
+            service["environment"] = env
+            changed = True
+            logger.info(f"Added WORDPRESS_CONFIG_EXTRA to {_name}")
+        if changed:
+            compose_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    def _detect_debian_release(self, dockerfile_text: str) -> str | None:
+        """Detect the Debian release from a Dockerfile's FROM line."""
+        for line in dockerfile_text.split("\n"):
+            stripped = line.strip()
+            if not stripped.upper().startswith("FROM "):
+                continue
+            image = stripped.split()[1] if len(stripped.split()) > 1 else ""
+            for pattern, release in self._OLD_IMAGE_PATTERNS:
+                if image.startswith(pattern):
+                    return release
+            # Generic debian:X-slim patterns
+            for tag in ("jessie", "stretch", "buster", "bullseye", "bookworm"):
+                if tag in image:
+                    return tag
+        return None
+
+    def _has_old_mysql_image(self, work_dir: Path) -> bool:
+        """Check if any Dockerfile uses an old MySQL image with known BuildKit issues."""
+        old_mysql = ("mysql:5.6", "mysql:5.7", "mysql:8.0", "mariadb:5.5", "mariadb:10.0")
+        for dockerfile in work_dir.rglob("Dockerfile"):
+            try:
+                for line in dockerfile.read_text(encoding="utf-8").split("\n"):
+                    stripped = line.strip()
+                    if stripped.upper().startswith("FROM "):
+                        image = stripped.split()[1] if len(stripped.split()) > 1 else ""
+                        if any(image.startswith(p) for p in old_mysql):
+                            return True
+            except Exception:
+                continue
+        return False
 
     def _resolve_ports(
         self, project: str, exposed: list[dict[str, Any]], docker_env: dict[str, str]
@@ -1216,11 +1671,29 @@ def _normalise_proxy(value: str | None) -> str | None:
     return proxy
 
 
+# [20] A proxy bound to loopback is reachable from the host but NOT from inside a
+# build container (127.0.0.1 there is the container itself), so it must be neutralised.
+# 绑定到 loopback 的代理在宿主可达，但在构建容器内不可达（容器里的 127.0.0.1 是容器自己），必须中和。
+def _is_loopback_proxy(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlsplit(url if "://" in url else f"http://{url}")
+        host = (parsed.hostname or "").lower()
+    except Exception:
+        return False
+    return host in {"localhost", "::1", "0.0.0.0"} or host.startswith("127.")
+
+
 def _env_enabled(name: str) -> bool:
     raw = os.getenv(name)
     if raw is None:
         return False
     return raw.strip().lower() not in {"", "0", "false", "no", "off"}
+
+
+def _public_submission_answer(answer: str) -> str:
+    if _env_enabled("DROPLET_SHOW_SUBMISSION_ANSWERS"):
+        return answer
+    return "<redacted>"
 
 
 def _normalise_no_proxy(value: str | None, default: str) -> str:
@@ -1320,8 +1793,18 @@ def _endpoint_ready(endpoint: dict[str, Any]) -> tuple[bool, str]:
     if protocol == "http":
         url = str(endpoint.get("url") or f"http://{host}:{port}")
         try:
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            with opener.open(url, timeout=3) as response:
+            # Don't follow redirects — some services redirect to a different
+            # host/port (e.g. WordPress redirects to http://host/ without the
+            # mapped port), which would cause a spurious connection refused.
+            class _NoRedirect(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, headers, newurl):
+                    return req  # stay on the original URL
+
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+            req = urllib.request.Request(url, method="HEAD")
+            with opener.open(req, timeout=3) as response:
+                # Accept any non-server-error response as "ready".
+                # 3xx redirects (e.g. WordPress) mean the service is up.
                 return int(response.status) < 500, f"HTTP {response.status}"
         except urllib.error.HTTPError as exc:
             return int(exc.code) < 500, f"HTTP {exc.code}"

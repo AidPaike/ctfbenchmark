@@ -6,7 +6,13 @@ import pytest
 from sqlmodel import Session, select
 
 from droplet.database import SystemLog, get_engine, init_db, reset_engine
-from droplet.logging_config import ColorFormatter, SQLiteLogHandler, setup_logging
+from droplet.logging_config import (
+    ACCESS_LOGGER_NAME,
+    ColorFormatter,
+    SQLiteLogHandler,
+    _ExcludeLoggerFilter,
+    setup_logging,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -153,6 +159,35 @@ class TestSetupLogging:
             assert len(results) >= 1
             messages = [r.message for r in results]
             assert any("integration message" in m for m in messages)
+
+
+class TestAccessLogFiltering:
+    def test_access_logs_not_persisted_to_db(self):
+        setup_logging()
+        logging.getLogger(ACCESS_LOGGER_NAME).info("GET /api/health → 200 (1ms)")
+        logging.getLogger("droplet.app").info("a real application event")
+
+        engine = get_engine()
+        with Session(engine) as session:
+            messages = [r.message for r in session.exec(select(SystemLog)).all()]
+        # The real event is persisted; the per-request access log is not.
+        assert any("a real application event" in m for m in messages)
+        assert not any("/api/health" in m for m in messages)
+
+    def test_exclude_filter_matches_logger_and_children_only(self):
+        f = _ExcludeLoggerFilter("droplet.access")
+
+        def rec(name: str) -> logging.LogRecord:
+            return logging.makeLogRecord(
+                {"name": name, "msg": "x", "levelname": "INFO", "levelno": logging.INFO}
+            )
+
+        # Rejected (filter returns False): the logger itself and its children.
+        assert f.filter(rec("droplet.access")) is False
+        assert f.filter(rec("droplet.access.requests")) is False
+        # Kept (filter returns True): unrelated loggers and substring lookalikes.
+        assert f.filter(rec("droplet.app")) is True
+        assert f.filter(rec("droplet.accessory")) is True
 
 
 class TestSystemLogTable:

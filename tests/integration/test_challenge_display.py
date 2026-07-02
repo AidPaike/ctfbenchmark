@@ -17,9 +17,10 @@ from fastapi.testclient import TestClient
 
 from droplet import app as app_module
 from droplet.events import EventStore
+from tests.helpers import auth_headers
 
 
-AUTH = {"Authorization": "Bearer droplet_dev_admin"}
+AUTH = auth_headers()
 
 # Fields the frontend Challenge type expects (frontend/src/main.tsx)
 FRONTEND_REQUIRED_FIELDS = {
@@ -52,6 +53,7 @@ FRONTEND_REQUIRED_FIELDS = {
 def display_client(tmp_path: Path, monkeypatch):
     """Set up a test client with the real dataset loader."""
     monkeypatch.setenv("DROPLET_PRESTART_CHALLENGES", "0")
+    monkeypatch.setenv("DROPLET_PREFETCH_IMAGES", "0")
 
     manager = app_module.manager
     old_challenges = manager.challenges
@@ -61,8 +63,8 @@ def display_client(tmp_path: Path, monkeypatch):
     manager.events = EventStore()
     manager.challenges = {}
 
-    # Set dataset root to the actual demo dataset
-    dataset_root = Path(__file__).parent.parent.parent / "datasets" / "demo-xbow"
+    # Set dataset root to the aggregate dataset root used by the default platform config.
+    dataset_root = Path(__file__).parent.parent.parent / "datasets"
     manager.dataset_root = dataset_root
 
     # Actually load the real challenges

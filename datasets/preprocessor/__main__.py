@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 from .base import BatchRunner
@@ -27,6 +26,7 @@ from .xbow import XbowPreprocessor
 # Preprocessor registry — add new dataset types here
 # ---------------------------------------------------------------------------
 
+
 def _default_runner() -> BatchRunner:
     return BatchRunner(preprocessors=[XbowPreprocessor()])
 
@@ -34,6 +34,7 @@ def _default_runner() -> BatchRunner:
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -60,7 +61,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- batch-multi --
     p_multi = sub.add_parser("batch-multi", help="Process multiple datasets from a JSON spec file.")
-    p_multi.add_argument("spec", type=Path, help="JSON: array of {type, raw_path, output_dir, dataset_id?}")
+    p_multi.add_argument(
+        "spec", type=Path, help="JSON: array of {type, raw_path, output_dir, dataset_id?}"
+    )
     p_multi.add_argument("--overwrite", action="store_true")
 
     return parser
@@ -70,27 +73,38 @@ def build_parser() -> argparse.ArgumentParser:
 # Handlers
 # ---------------------------------------------------------------------------
 
+
 def cmd_single(args: argparse.Namespace) -> int:
     preprocessor = _default_runner().get(args.dataset_type)
     result = preprocessor.process_one(
-        args.raw_path, args.output_dir,
-        challenge_id=args.challenge_id, dataset_id=args.dataset_id,
+        args.raw_path,
+        args.output_dir,
+        challenge_id=args.challenge_id,
+        dataset_id=args.dataset_id,
         overwrite=args.overwrite,
     )
-    print(json.dumps({
-        "challenge_id": result.challenge_id,
-        "output_dir": str(result.output_dir),
-        "name": result.metadata.name,
-        "tags": result.metadata.tags,
-    }, indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "challenge_id": result.challenge_id,
+                "output_dir": str(result.output_dir),
+                "name": result.metadata.name,
+                "tags": result.metadata.tags,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 
 def cmd_batch(args: argparse.Namespace) -> int:
     preprocessor = _default_runner().get(args.dataset_type)
     result = preprocessor.process_batch(
-        args.raw_path, args.output_dir,
-        dataset_id=args.dataset_id, overwrite=args.overwrite,
+        args.raw_path,
+        args.output_dir,
+        dataset_id=args.dataset_id,
+        overwrite=args.overwrite,
     )
     print(result.summary())
     return 0 if result.failed == 0 else 1
@@ -108,6 +122,7 @@ def cmd_batch_multi(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)

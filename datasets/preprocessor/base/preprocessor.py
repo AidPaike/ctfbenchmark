@@ -142,8 +142,11 @@ class BasePreprocessor(ABC):
         for cid, challenge_path in self.discover(raw):
             try:
                 r = self.process_one(
-                    challenge_path, out,
-                    challenge_id=cid, dataset_id=ds_id, overwrite=overwrite,
+                    challenge_path,
+                    out,
+                    challenge_id=cid,
+                    dataset_id=ds_id,
+                    overwrite=overwrite,
                 )
                 result.results.append(r)
             except Exception as exc:
@@ -174,7 +177,8 @@ class BasePreprocessor(ABC):
             "auto_discover": [entry],
         }
         (dataset_root / "droplet.yaml").write_text(
-            yaml.safe_dump(data, sort_keys=False), encoding="utf-8",
+            yaml.safe_dump(data, sort_keys=False),
+            encoding="utf-8",
         )
 
     def _write_benchmark_json(self, challenge_dir: Path, cid: str, meta: ChallengeMetadata) -> None:
@@ -189,7 +193,8 @@ class BasePreprocessor(ABC):
             "preprocessor": {"name": f"datasets.preprocessor.{self.dataset_type}"},
         }
         (challenge_dir / "benchmark.json").write_text(
-            json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8",
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
         )
 
     def _write_benchmark_yaml(self, challenge_dir: Path, cid: str, meta: ChallengeMetadata) -> None:
@@ -208,11 +213,16 @@ class BasePreprocessor(ABC):
             ],
         }
         (challenge_dir / "benchmark.yaml").write_text(
-            yaml.safe_dump(data, sort_keys=False), encoding="utf-8",
+            yaml.safe_dump(data, sort_keys=False),
+            encoding="utf-8",
         )
 
     def _write_readme(
-        self, challenge_dir: Path, cid: str, meta: ChallengeMetadata, strategy: str,
+        self,
+        challenge_dir: Path,
+        cid: str,
+        meta: ChallengeMetadata,
+        strategy: str,
     ) -> None:
         hint_section = f"\n### Hint\n{meta.hint}\n" if meta.hint else ""
         difficulty_label = {1: "Easy", 2: "Medium", 3: "Hard"}.get(meta.difficulty, "Medium")
