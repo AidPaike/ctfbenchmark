@@ -35,6 +35,80 @@ _pidfile_backend="${PROJECT_ROOT}/.droplet-backend.pid"
 _pidfile_frontend="${PROJECT_ROOT}/.droplet-frontend.pid"
 LOG_DIR="${PROJECT_ROOT}/logs"
 BACKEND_LOG="${LOG_DIR}/backend.log"
+BACKEND_PID=""
+FRONTEND_PID=""
+
+_process_group_id() {
+  local pid="$1"
+  ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true
+}
+
+_is_droplet_process() {
+  local pid="$1"
+  local cmdline
+  local cwd=""
+  if [[ -f "/proc/$pid/cmdline" ]]; then
+    cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)
+    cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
+  else
+    cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
+  fi
+
+  if [[ "$cmdline" == *"uvicorn"*"droplet.app:app"* ]] && \
+     { [[ -z "$cwd" ]] || [[ "$cwd" == "$PROJECT_ROOT"* ]]; }; then
+    return 0
+  fi
+  if { [[ "$cmdline" == *"npm"*"run"*"dev"* ]] || [[ "$cmdline" == *"vite"*"--host"* ]]; } && \
+     { [[ -z "$cwd" ]] || [[ "$cwd" == "$PROJECT_ROOT/frontend"* ]]; }; then
+    return 0
+  fi
+  return 1
+}
+
+_kill_started_process() {
+  local pid="$1"
+  local name="$2"
+  local pgid
+  if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
+    return
+  fi
+  pgid="$(_process_group_id "$pid")"
+  if [[ -n "$pgid" ]]; then
+    kill -- -"$pgid" 2>/dev/null || true
+  else
+    kill "$pid" 2>/dev/null || true
+  fi
+  for _ in {1..10}; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.2
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo -e "\e[33m[WARN]\e[0m $name did not exit gracefully, forcing ..."
+    if [[ -n "$pgid" ]]; then
+      kill -9 -- -"$pgid" 2>/dev/null || true
+    fi
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+}
+
+_cleanup_started_processes() {
+  _kill_started_process "$BACKEND_PID" "backend"
+  _kill_started_process "$FRONTEND_PID" "frontend"
+  rm -f "$_pidfile_frontend" "$_pidfile_backend"
+}
+
+_wait_for_port_release() {
+  local port="$1"
+  for _ in {1..20}; do
+    if [[ -z "$(lsof -ti:"$port" 2>/dev/null || true)" ]]; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  return 1
+}
 
 # ── Stop any existing instances ────────────────────────────────────
 bash "${SCRIPT_DIR}/stop.sh" >/dev/null 2>&1 || true
@@ -42,29 +116,46 @@ bash "${SCRIPT_DIR}/stop.sh" >/dev/null 2>&1 || true
 # ── Verify ports are free ──────────────────────────────────────────
 _check_port() {
   local port="$1"
+  local name="$2"
   local pids
   pids=$(lsof -ti:"$port" 2>/dev/null || true)
   if [[ -n "$pids" ]]; then
-    if [[ "${DROPLET_FORCE_KILL_PORTS:-0}" != "1" ]]; then
-      echo -e "\e[31m[ERROR]\e[0m Port $port is already in use (PID: $pids)."
-      echo -e "        Stop that process first, or rerun with DROPLET_FORCE_KILL_PORTS=1."
+    local remaining=()
+    for pid in $pids; do
+      if _is_droplet_process "$pid"; then
+        echo -e "\e[33m[WARN]\e[0m Port $port is held by orphaned Droplet $name (PID: $pid), cleaning it up ..."
+        _kill_started_process "$pid" "$name"
+      else
+        remaining+=("$pid")
+      fi
+    done
+
+    if [[ "${#remaining[@]}" -gt 0 ]]; then
+      if [[ "${DROPLET_FORCE_KILL_PORTS:-0}" != "1" ]]; then
+        echo -e "\e[31m[ERROR]\e[0m Port $port is already in use (PID: ${remaining[*]})."
+        echo -e "        Stop that process first, or rerun with DROPLET_FORCE_KILL_PORTS=1."
+        exit 1
+      fi
+      echo -e "\e[33m[WARN]\e[0m Port $port is in use (PID: ${remaining[*]}), force killing because DROPLET_FORCE_KILL_PORTS=1 ..."
+      for pid in "${remaining[@]}"; do
+        kill -9 "$pid" 2>/dev/null || true
+      done
+    fi
+
+    if ! _wait_for_port_release "$port"; then
+      pids=$(lsof -ti:"$port" 2>/dev/null || true)
+      echo -e "\e[31m[ERROR]\e[0m Port $port is still in use (PID: $pids)."
       exit 1
     fi
-    echo -e "\e[33m[WARN]\e[0m Port $port is in use (PID: $pids), force killing because DROPLET_FORCE_KILL_PORTS=1 ..."
-    for pid in $pids; do
-      kill -9 "$pid" 2>/dev/null || true
-    done
-    sleep 0.5
   fi
 }
-_check_port "$BACKEND_PORT"
-_check_port "$FRONTEND_PORT"
+_check_port "$BACKEND_PORT" "backend"
+_check_port "$FRONTEND_PORT" "frontend"
 
 mkdir -p "$LOG_DIR"
 rm -f "$BACKEND_LOG"
 
 # ── Start frontend in background ───────────────────────────────────
-FRONTEND_PID=""
 if [[ "${START_FRONTEND:-1}" == "1" ]]; then
   cd "${PROJECT_ROOT}/frontend"
   # Start in a new process group so we can kill the whole tree
@@ -89,6 +180,7 @@ sleep 2
 if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
   echo -e "\e[31m[ERROR]\e[0m Backend failed to start. Check logs:"
   tail -5 "$BACKEND_LOG" 2>/dev/null
+  _cleanup_started_processes
   exit 1
 fi
 
@@ -204,8 +296,9 @@ fi
 
 # ── Cleanup on exit ────────────────────────────────────────────────
 cleanup() {
+  local exit_status="${1:-0}"
   # Remove signal traps so we don't recurse.
-  trap - EXIT INT TERM
+  trap - EXIT HUP INT TERM
 
   # Stop tail first so the terminal stops receiving updates.
   if [[ -n "$TAIL_PID" ]]; then
@@ -231,31 +324,25 @@ cleanup() {
   echo ""
   printf '\e[36m[INFO]\e[0m Shutting down ...\n'
 
-  # Kill entire process groups (setsid) to clean up child processes
-  if kill -0 "$BACKEND_PID" 2>/dev/null; then
-    kill -- -"$BACKEND_PID" 2>/dev/null || kill "$BACKEND_PID" 2>/dev/null || true
-    wait "$BACKEND_PID" 2>/dev/null || true
-  fi
-  if [[ -n "$FRONTEND_PID" ]] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
-    kill -- -"$FRONTEND_PID" 2>/dev/null || kill "$FRONTEND_PID" 2>/dev/null || true
-    wait "$FRONTEND_PID" 2>/dev/null || true
-  fi
-
-  rm -f "$_pidfile_frontend" "$_pidfile_backend"
+  _cleanup_started_processes
 
   echo ""
   printf '\e[32m[OK]\e[0m   Droplet stopped\n'
   echo ""
-  exit 0
+  exit "$exit_status"
 }
-trap 'cleanup' INT TERM
+trap 'cleanup $?' EXIT
+trap 'cleanup 129' HUP
+trap 'cleanup 130' INT
+trap 'cleanup 143' TERM
 
 # ── Wait for backend process ───────────────────────────────────────
 wait "$BACKEND_PID"
+BACKEND_STATUS=$?
 
 # If we get here the backend exited on its own (e.g. port conflict).
 if [[ "$_HAS_TPUT" == "1" && -n "$TAIL_PID" ]]; then
   kill "$TAIL_PID" 2>/dev/null || true
   wait "$TAIL_PID" 2>/dev/null || true
 fi
-cleanup
+cleanup "$BACKEND_STATUS"

@@ -16,14 +16,16 @@ def test_ci_runs_non_docker_api_contract_tests() -> None:
     assert "tests/integration/test_api_contract.py" in workflow
 
 
-def test_platform_scripts_do_not_force_kill_ports_by_default() -> None:
+def test_platform_scripts_only_kill_verified_droplet_port_processes() -> None:
     start_script = _read("scripts/platform/start.sh")
     stop_script = _read("scripts/platform/stop.sh")
 
     assert "DROPLET_FORCE_KILL_PORTS" in start_script
     assert "DROPLET_STOP_BY_PORT" in stop_script
     assert "Port $port is already in use" in start_script
-    assert "port-based force stop is disabled" in stop_script
+    assert "_is_droplet_process" in stop_script
+    assert "Port $port occupied by non-Droplet process" in stop_script
+    assert "DROPLET_STOP_BY_PORT:-1" in stop_script
 
 
 def test_prefetch_progress_uses_configured_api_token() -> None:

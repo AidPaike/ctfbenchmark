@@ -94,7 +94,7 @@ DROPLET_PRESTART_CHALLENGES=0 ./scripts/dev/dev-backend.sh
 ./scripts/ops/clean-runtime.sh      # 清理运行态目录
 ```
 
-如果 PID 文件丢失，`stop.sh` 默认不会按端口强杀进程；确认端口所有者确实是 Droplet 后，可用 `DROPLET_STOP_BY_PORT=1 ./scripts/platform/stop.sh`。
+如果 PID 文件丢失，`stop.sh` 会按端口清理确认属于当前项目的 Droplet 孤儿进程；非 Droplet 进程只提示不杀。如需完全禁用端口兜底清理，可用 `DROPLET_STOP_BY_PORT=0 ./scripts/platform/stop.sh`。
 
 ## Agent 接入
 
