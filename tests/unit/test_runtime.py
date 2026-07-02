@@ -167,7 +167,12 @@ def test_start_compose_strips_stale_proxy_when_proxy_is_disabled(tmp_path, monke
     def fake_run(command, **kwargs):
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
+    # Force "no proxy anywhere": clear the env vars and point HOME at a dir with no
+    # ~/.docker/config.json so the manager does not auto-detect an ambient proxy.
     monkeypatch.delenv("DROPLET_DOCKER_PROXY", raising=False)
+    for _key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        monkeypatch.delenv(_key, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr(
         DropletManager,
         "_resolve_ports",
@@ -176,6 +181,7 @@ def test_start_compose_strips_stale_proxy_when_proxy_is_disabled(tmp_path, monke
     monkeypatch.setattr(manager_module.subprocess, "run", fake_run)
 
     manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
+    assert manager._proxy_mode == "none"
     monkeypatch.setattr(manager, "_wait_for_endpoints", lambda endpoints: None)
     challenge = make_challenge(template)
 
@@ -187,6 +193,59 @@ def test_start_compose_strips_stale_proxy_when_proxy_is_disabled(tmp_path, monke
     runtime_dockerfile = (work_dir / "app" / "Dockerfile").read_text(encoding="utf-8")
     assert "stale.proxy" not in runtime_dockerfile
     assert "stale.proxy" in (app / "Dockerfile").read_text(encoding="utf-8")
+
+
+def test_start_compose_neutralizes_loopback_proxy(tmp_path, monkeypatch) -> None:
+    # A loopback proxy (e.g. injected by ~/.docker/config.json) is unreachable from
+    # inside a build container, so the manager must override it with EMPTY proxy
+    # build-args to force the build onto its direct network egress.
+    template = tmp_path / "template"
+    app = template / "app"
+    app.mkdir(parents=True)
+    (app / "Dockerfile").write_text("FROM python:3.12\nRUN echo ok\n", encoding="utf-8")
+    (template / "docker-compose.yml").write_text(
+        """services:
+  web:
+    build:
+      context: ./app
+      args:
+        - FLAG
+    ports:
+      - "8080:80"
+""",
+        encoding="utf-8",
+    )
+
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.delenv("DROPLET_DOCKER_PROXY", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))  # no docker config.json
+    for _key in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY"):
+        monkeypatch.delenv(_key, raising=False)
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:7897")
+    monkeypatch.setattr(
+        DropletManager,
+        "_resolve_ports",
+        lambda _s, _p, exposed, _e: [{**item, "host_port": 34567} for item in exposed],
+    )
+    monkeypatch.setattr(manager_module.subprocess, "run", fake_run)
+
+    manager = DropletManager(dataset_root=tmp_path, work_root=tmp_path / "work")
+    assert manager._proxy_mode == "disable"
+    monkeypatch.setattr(manager, "_wait_for_endpoints", lambda endpoints: None)
+    challenge = make_challenge(template)
+
+    work_dir = tmp_path / "work" / "challenges" / "demo"
+    manager._start_compose(challenge, work_dir)
+
+    runtime_compose = yaml.safe_load((work_dir / "docker-compose.yml").read_text(encoding="utf-8"))
+    args = runtime_compose["services"]["web"]["build"]["args"]
+    assert "FLAG" in args
+    # every proxy key present but EMPTY (overrides docker config.json), never a host
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        assert f"{key}=" in args
+        assert not any(a.startswith(f"{key}=") and a != f"{key}=" for a in args)
 
 
 def test_docker_no_proxy_preserves_user_entries_and_adds_platform_defaults(

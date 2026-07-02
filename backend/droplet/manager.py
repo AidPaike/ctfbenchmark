@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, ClassVar
@@ -72,6 +73,30 @@ class DropletManager:
             os.getenv("DROPLET_DOCKER_NO_PROXY") or os.getenv("NO_PROXY"),
             DEFAULT_DOCKER_NO_PROXY,
         )
+        # [3a] Decide how to treat the Docker *build* proxy. Some environments point
+        # the proxy at loopback (127.0.0.1 — e.g. via ~/.docker/config.json or an
+        # inherited shell var). That address is unreachable from inside a build
+        # container, so apt/pip fail with exit 100. Detect it and neutralise it by
+        # injecting empty proxy build-args (which override docker config.json) so the
+        # build goes direct. A usable, non-loopback proxy is forwarded instead.
+        # 决定如何处理 Docker 构建代理：loopback 代理在容器内不可达，会让 apt/pip 失败，
+        # 检测到就用空 build-arg 覆盖掉走直连；可用的非 loopback 代理则照常转发。
+        ambient_proxy = self._detect_ambient_proxy()
+        if not ambient_proxy:
+            self._proxy_mode: str = "none"
+            self._proxy_value: str | None = None
+        elif _is_loopback_proxy(ambient_proxy):
+            self._proxy_mode = "disable"
+            self._proxy_value = None
+            logger.warning(
+                f"Docker build proxy {ambient_proxy} is on loopback and unreachable "
+                f"inside build containers; neutralising it so builds go direct. "
+                f"Set DROPLET_DOCKER_PROXY to a container-reachable proxy to override."
+            )
+        else:
+            self._proxy_mode = "use"
+            self._proxy_value = ambient_proxy
+            logger.info(f"Using Docker build proxy {ambient_proxy}")
         self.ready_timeout_seconds = int(
             os.getenv("DROPLET_TARGET_READY_TIMEOUT", str(DEFAULT_READY_TIMEOUT_SECONDS))
         )
@@ -394,7 +419,14 @@ class DropletManager:
                     f"Pre-building images for {challenge_id}", extra={"challenge_id": challenge_id}
                 )
                 result = subprocess.run(
-                    ["docker", "compose", "-f", str(compose_src), "build"],
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_src),
+                        "build",
+                        *self._proxy_build_arg_flags(),
+                    ],
                     cwd=str(Path(challenge.root)),
                     env=docker_env,
                     capture_output=True,
@@ -1155,20 +1187,73 @@ class DropletManager:
     # Docker helpers: proxy injection / port rewriting
     # ------------------------------------------------------------------
 
-    def _docker_environment(self) -> dict[str, str]:
-        env = os.environ.copy()
-        if not self.docker_proxy:
-            return env
+    def _detect_ambient_proxy(self) -> str | None:
+        """Find the proxy that would otherwise be injected into Docker builds.
+
+        Order of precedence: explicit ``DROPLET_DOCKER_PROXY``, then inherited shell
+        vars, then the docker client config (``~/.docker/config.json``) which Docker
+        injects into every build automatically.
+        """
+        if self.docker_proxy:
+            return self.docker_proxy
         for key in PROXY_URL_KEYS:
-            env[key] = self.docker_proxy
+            value = os.getenv(key)
+            if value and value.strip():
+                return value.strip()
+        try:
+            cfg = Path.home() / ".docker" / "config.json"
+            if cfg.exists():
+                data = json.loads(cfg.read_text(encoding="utf-8")) or {}
+                default = (data.get("proxies") or {}).get("default") or {}
+                value = default.get("httpProxy") or default.get("httpsProxy")
+                if value and str(value).strip():
+                    return str(value).strip()
+        except Exception:
+            pass
+        return None
+
+    def _proxy_build_arg_flags(self) -> list[str]:
+        """``--build-arg`` flags for the prefetch ``docker compose build`` command.
+
+        Mirrors :meth:`_apply_docker_proxy`: forward a usable proxy, or inject empty
+        proxy args to override a loopback proxy from docker config.json.
+        """
+        if self._proxy_mode == "none":
+            return []
+        proxy_value = self._proxy_value if self._proxy_mode == "use" else ""
+        flags: list[str] = []
+        for key in PROXY_URL_KEYS:
+            flags += ["--build-arg", f"{key}={proxy_value}"]
         if self.docker_no_proxy:
             for key in NO_PROXY_KEYS:
-                env[key] = self.docker_no_proxy
+                flags += ["--build-arg", f"{key}={self.docker_no_proxy}"]
+        return flags
+
+    def _docker_environment(self) -> dict[str, str]:
+        env = os.environ.copy()
+        if self._proxy_mode == "use" and self._proxy_value:
+            for key in PROXY_URL_KEYS:
+                env[key] = self._proxy_value
+            if self.docker_no_proxy:
+                for key in NO_PROXY_KEYS:
+                    env[key] = self.docker_no_proxy
+        elif self._proxy_mode == "disable":
+            # Drop the unreachable loopback proxy so the docker CLI itself does not
+            # try to use it; the in-container build is handled by empty build-args.
+            for key in PROXY_URL_KEYS:
+                env.pop(key, None)
+            if self.docker_no_proxy:
+                for key in NO_PROXY_KEYS:
+                    env[key] = self.docker_no_proxy
         return env
 
     def _apply_docker_proxy(self, work_dir: Path, compose_path: Path) -> None:
-        if not self.docker_proxy:
+        if self._proxy_mode == "none":
             return
+        # 'use' -> forward the proxy; 'disable' -> empty proxy build-args that override
+        # a loopback proxy docker config.json would otherwise inject, so apt/pip run
+        # against the build's direct network egress.
+        proxy_value = self._proxy_value if self._proxy_mode == "use" else ""
 
         data = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
         changed = False
@@ -1181,9 +1266,7 @@ class DropletManager:
                 service["build"] = build
             if not isinstance(build, dict):
                 continue
-            build["args"] = _proxy_build_args(
-                build.get("args"), self.docker_proxy, self.docker_no_proxy
-            )
+            build["args"] = _proxy_build_args(build.get("args"), proxy_value, self.docker_no_proxy)
             changed = True
         if changed:
             compose_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
@@ -1586,6 +1669,18 @@ def _normalise_proxy(value: str | None) -> str | None:
     if "://" not in proxy:
         proxy = f"http://{proxy}"
     return proxy
+
+
+# [20] A proxy bound to loopback is reachable from the host but NOT from inside a
+# build container (127.0.0.1 there is the container itself), so it must be neutralised.
+# 绑定到 loopback 的代理在宿主可达，但在构建容器内不可达（容器里的 127.0.0.1 是容器自己），必须中和。
+def _is_loopback_proxy(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlsplit(url if "://" in url else f"http://{url}")
+        host = (parsed.hostname or "").lower()
+    except Exception:
+        return False
+    return host in {"localhost", "::1", "0.0.0.0"} or host.startswith("127.")
 
 
 def _env_enabled(name: str) -> bool:
