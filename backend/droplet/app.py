@@ -15,13 +15,16 @@ from fastapi.responses import JSONResponse
 
 from droplet.database import init_db, migrate_jsonl_to_sqlite
 from droplet.events import DEFAULT_EVENT_LOG
-from droplet.logging_config import setup_logging
+from droplet.logging_config import ACCESS_LOGGER_NAME, setup_logging
 from droplet.manager import DropletManager
 
 
 # [1] Module-level singleton: one DropletManager instance shared across all requests
 # 模块级单例：一个 DropletManager 实例被所有请求共享
 logger = logging.getLogger("droplet.app")
+# Per-request access logs go to a dedicated logger that is shown on the terminal
+# but not persisted to SQLite (avoids a DB write per poll). See logging_config.
+access_logger = logging.getLogger(ACCESS_LOGGER_NAME)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -110,7 +113,7 @@ async def log_requests(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
     duration_ms = round((time.time() - start) * 1000, 2)
-    logger.info(
+    access_logger.info(
         f"{request.method} {request.url.path} → {response.status_code} ({duration_ms}ms)",
         extra={
             "method": request.method,

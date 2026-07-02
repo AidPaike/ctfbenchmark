@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Generator
 
+from sqlalchemy import event
 from sqlmodel import Field, Session, SQLModel, UniqueConstraint, create_engine, select
 
 
@@ -23,6 +24,23 @@ _engine = None
 _engine_path = None
 
 
+def _apply_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+    """Set per-connection PRAGMAs so reads don't block on writes.
+
+    WAL lets readers and a single writer proceed concurrently; synchronous=NORMAL
+    is the safe/fast pairing for WAL; busy_timeout makes brief lock contention
+    (e.g. background prefetch vs. polling) wait instead of raising "database is
+    locked". Applied on every new connection because PRAGMAs are connection-scoped.
+    """
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+    finally:
+        cursor.close()
+
+
 def get_engine():
     global _engine, _engine_path
     raw = os.getenv("DROPLET_DATABASE_PATH")
@@ -35,6 +53,7 @@ def get_engine():
             connect_args={"check_same_thread": False},
             echo=False,
         )
+        event.listen(_engine, "connect", _apply_sqlite_pragmas)
     return _engine
 
 
@@ -48,6 +67,36 @@ def init_db() -> None:
     engine = get_engine()
     SQLModel.metadata.create_all(engine)
     _auto_migrate_columns(engine)
+
+
+def prune_system_logs(keep: int | None = None) -> int:
+    """Delete all but the most recent ``keep`` rows from ``system_logs``.
+
+    The log table is append-only and was observed growing without bound (68k
+    rows / 28MB). This caps it to a recent window so a long-running platform
+    doesn't accumulate disk indefinitely. ``keep`` defaults to the
+    ``DROPLET_SYSTEM_LOG_MAX_ROWS`` env var (5000). Returns rows deleted.
+    """
+    if keep is None:
+        try:
+            keep = int(os.getenv("DROPLET_SYSTEM_LOG_MAX_ROWS", "5000"))
+        except ValueError:
+            keep = 5000
+    keep = max(keep, 0)
+
+    engine = get_engine()
+    with engine.begin() as connection:
+        exists = connection.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='system_logs'"
+        ).first()
+        if not exists:
+            return 0
+        result = connection.exec_driver_sql(
+            "DELETE FROM system_logs WHERE id NOT IN "
+            "(SELECT id FROM system_logs ORDER BY id DESC LIMIT ?)",
+            (keep,),
+        )
+        return result.rowcount or 0
 
 
 # ── Column type mapping for ALTER TABLE DEFAULT values ────────────────

@@ -16,6 +16,7 @@ from droplet.database import (
     increment_session_id,
     init_db,
     migrate_jsonl_to_sqlite,
+    prune_system_logs,
     reset_engine,
     reset_session_cache,
 )
@@ -233,3 +234,64 @@ def test_auto_migrate_handles_all_tables(isolated_database):
     with engine.begin() as conn:
         cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(system_logs)")}
         assert "data" in cols
+
+
+# ── WAL / PRAGMA tests ───────────────────────────────────────────────
+
+
+def test_engine_uses_wal_journal_mode(isolated_database):
+    """The engine should put the SQLite file into WAL mode (matches the
+    long-standing comment in database.py that previously was never honoured)."""
+    init_db()
+    engine = get_engine()
+    with engine.connect() as conn:
+        mode = conn.exec_driver_sql("PRAGMA journal_mode").first()[0]
+        busy = conn.exec_driver_sql("PRAGMA busy_timeout").first()[0]
+    assert mode.lower() == "wal"
+    assert busy == 5000
+
+
+# ── system_logs pruning tests ────────────────────────────────────────
+
+
+def _insert_system_logs(engine, count: int) -> None:
+    with Session(engine) as session:
+        for i in range(count):
+            session.add(SystemLog(level="INFO", logger="t", message=f"row {i}"))
+        session.commit()
+
+
+def test_prune_system_logs_keeps_most_recent(isolated_database):
+    init_db()
+    engine = get_engine()
+    _insert_system_logs(engine, 20)
+
+    deleted = prune_system_logs(keep=5)
+    assert deleted == 15
+
+    with Session(engine) as session:
+        rows = session.exec(select(SystemLog).order_by(SystemLog.id)).all()
+    assert len(rows) == 5
+    # The survivors must be the highest ids (most recent inserts)
+    assert [r.message for r in rows] == [f"row {i}" for i in range(15, 20)]
+
+
+def test_prune_system_logs_noop_when_under_cap(isolated_database):
+    init_db()
+    engine = get_engine()
+    _insert_system_logs(engine, 3)
+    deleted = prune_system_logs(keep=5000)
+    assert deleted == 0
+    with Session(engine) as session:
+        assert len(session.exec(select(SystemLog)).all()) == 3
+
+
+def test_prune_system_logs_reads_env_default(isolated_database, monkeypatch):
+    init_db()
+    engine = get_engine()
+    _insert_system_logs(engine, 10)
+    monkeypatch.setenv("DROPLET_SYSTEM_LOG_MAX_ROWS", "4")
+    deleted = prune_system_logs()
+    assert deleted == 6
+    with Session(engine) as session:
+        assert len(session.exec(select(SystemLog)).all()) == 4
